@@ -24,13 +24,28 @@ vi.mock('./token-storage', () => ({
   }
 }));
 
+// Mock OAuthCallbackServer
+vi.mock('./oauth-callback-server', () => ({
+  OAuthCallbackServer: vi.fn()
+}));
+
 describe('OAuthClientManager', () => {
   let mockTokenStorage: TokenStorage;
   let mockConfig: MCPOAuthConfig;
   let mockOnAuthURL: ReturnType<typeof vi.fn>;
+  let mockCallbackServer: any;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    
+    mockCallbackServer = {
+      start: vi.fn().mockResolvedValue('http://localhost:12345/oauth/callback'),
+      waitForCallback: vi.fn(),
+      stop: vi.fn().mockResolvedValue(undefined),
+    };
+    
+    const { OAuthCallbackServer } = await import('./oauth-callback-server');
+    vi.mocked(OAuthCallbackServer).mockImplementation(() => mockCallbackServer);
     
     mockTokenStorage = {
       getTokens: vi.fn().mockResolvedValue(null),
@@ -138,9 +153,38 @@ describe('OAuthClientManager', () => {
       it('should start new OAuth flow if no valid tokens', async () => {
         (mockTokenStorage.getTokens as any).mockResolvedValue(null);
 
-        // Mock the startNewOAuthFlow to throw since we haven't mocked callback server
-        await expect(manager.initializeOAuthFlow()).rejects.toThrow();
-        // The error is expected since we haven't mocked the callback server
+        // Mock successful OAuth flow
+        const mockTokens: OAuthTokens = {
+          access_token: 'new-access-token',
+          token_type: 'Bearer',
+          expires_in: 3600,
+          issued_at: Math.floor(Date.now() / 1000),
+        };
+
+        mockCallbackServer.waitForCallback.mockImplementation(async () => {
+          await new Promise(resolve => setTimeout(resolve, 10));
+          const authURLCall = mockOnAuthURL.mock.calls[0];
+          const authURL = authURLCall[0];
+          const actualState = new URL(authURL).searchParams.get('state');
+          
+          return {
+            code: 'test-auth-code',
+            state: actualState,
+          };
+        });
+
+        (global.fetch as any).mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve(mockTokens),
+        });
+
+        const result = await manager.initializeOAuthFlow();
+        
+        expect(result.access_token).toBe('new-access-token');
+        expect(mockOnAuthURL).toHaveBeenCalled();
+        expect(mockCallbackServer.start).toHaveBeenCalled();
+        expect(mockCallbackServer.waitForCallback).toHaveBeenCalled();
+        expect(mockCallbackServer.stop).toHaveBeenCalled();
       });
     });
 
@@ -195,10 +239,15 @@ describe('OAuthClientManager', () => {
           token_type: 'Bearer',
           expires_in: 3600,
           issued_at: Math.floor(Date.now() / 1000) - 7200, // 2 hours ago
+          // refresh_token intentionally omitted
         };
 
         (mockTokenStorage.getTokens as any).mockResolvedValue(expiredTokens);
         
+        await manager.initializeOAuthFlow().catch(() => {
+          // Expected to fail since token is expired and no refresh token
+        });
+        (manager as any).currentTokens = expiredTokens;
         await expect(manager.getValidAccessToken()).rejects.toThrow(TokenExpiredError);
       });
     });
@@ -221,10 +270,18 @@ describe('OAuthClientManager', () => {
           token_type: 'Bearer',
           expires_in: 3600,
           issued_at: Math.floor(Date.now() / 1000) - 7200, // 2 hours ago
+          // no refresh_token
         };
 
         (mockTokenStorage.getTokens as any).mockResolvedValue(expiredTokens);
-        await manager.initializeOAuthFlow().catch(() => {}); // Ignore error, we just want to set tokens
+        
+        mockCallbackServer.waitForCallback.mockRejectedValue(new Error('User cancelled'));
+        
+        try {
+          await manager.initializeOAuthFlow();
+        } catch {
+          // Expected to fail since token is expired and user cancelled
+        }
 
         expect(manager.isAuthenticated()).toBe(false);
       });
