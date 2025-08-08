@@ -40,6 +40,8 @@ import type { JSONSchema } from 'zod-from-json-schema';
 import { ElicitationClientActions } from './elicitationActions';
 import { PromptClientActions } from './promptActions';
 import { ResourceClientActions } from './resourceActions';
+import type { MCPOAuthConfig } from './oauth-types';
+import { OAuthClientManager } from './oauth-client-manager';
 
 // Re-export MCP SDK LoggingLevel for convenience
 export type { LoggingLevel } from '@modelcontextprotocol/sdk/types.js';
@@ -93,6 +95,9 @@ type HttpServerDefinition = BaseServerOptions & {
   authProvider?: StreamableHTTPClientTransportOptions['authProvider'];
   reconnectionOptions?: StreamableHTTPClientTransportOptions['reconnectionOptions'];
   sessionId?: StreamableHTTPClientTransportOptions['sessionId'];
+  
+  // OAuth 2.1 authentication configuration
+  oauth?: MCPOAuthConfig;
 };
 
 export type MastraMCPServerDefinition = StdioServerDefinition | HttpServerDefinition;
@@ -137,6 +142,7 @@ export class InternalMastraMCPClient extends MastraBase {
   private serverConfig: MastraMCPServerDefinition;
   private transport?: Transport;
   private currentOperationContext: RuntimeContext | null = null;
+  private oauthManager?: OAuthClientManager;
   public readonly resources: ResourceClientActions;
   public readonly prompts: PromptClientActions;
   public readonly elicitation: ElicitationClientActions;
@@ -168,6 +174,16 @@ export class InternalMastraMCPClient extends MastraBase {
 
     // Set up log message capturing
     this.setupLogging();
+
+    // Initialize OAuth manager if OAuth config is provided
+    if ('oauth' in server && server.oauth) {
+      // Validate that OAuth is not used with other auth methods
+      if ('authProvider' in server && server.authProvider) {
+        throw new Error('Cannot use both OAuth and authProvider configurations. Choose one authentication method.');
+      }
+      
+      this.oauthManager = new OAuthClientManager(server.oauth, name);
+    }
 
     this.resources = new ResourceClientActions({ client: this, logger: this.logger });
     this.prompts = new PromptClientActions({ client: this, logger: this.logger });
@@ -242,6 +258,30 @@ export class InternalMastraMCPClient extends MastraBase {
 
     this.log('debug', `Attempting to connect to URL: ${url}`);
 
+    // Prepare auth provider - OAuth takes precedence over basic auth
+    let finalAuthProvider = authProvider;
+    
+    if (this.oauthManager) {
+      this.log('debug', 'Using OAuth authentication...');
+      try {
+        // Initialize OAuth flow if needed
+        await this.oauthManager.initializeOAuthFlow();
+        
+        // Create OAuth auth provider
+        finalAuthProvider = async () => {
+          const accessToken = await this.oauthManager!.getValidAccessToken();
+          return {
+            Authorization: `Bearer ${accessToken}`,
+          };
+        };
+        
+        this.log('debug', 'OAuth authentication configured successfully.');
+      } catch (oauthError) {
+        this.log('error', `OAuth authentication failed: ${oauthError}`);
+        throw oauthError;
+      }
+    }
+
     // Assume /sse means sse.
     let shouldTrySSE = url.pathname.endsWith(`/sse`);
 
@@ -252,7 +292,7 @@ export class InternalMastraMCPClient extends MastraBase {
         const streamableTransport = new StreamableHTTPClientTransport(url, {
           requestInit,
           reconnectionOptions: this.serverConfig.reconnectionOptions,
-          authProvider: authProvider,
+          authProvider: finalAuthProvider,
         });
         await this.client.connect(streamableTransport, {
           timeout:
@@ -271,7 +311,11 @@ export class InternalMastraMCPClient extends MastraBase {
       this.log('debug', 'Falling back to deprecated HTTP+SSE transport...');
       try {
         // Fallback to SSE transport
-        const sseTransport = new SSEClientTransport(url, { requestInit, eventSourceInit, authProvider });
+        const sseTransport = new SSEClientTransport(url, { 
+          requestInit, 
+          eventSourceInit, 
+          authProvider: finalAuthProvider 
+        });
         await this.client.connect(sseTransport, { timeout: this.serverConfig.timeout ?? this.timeout });
         this.transport = sseTransport;
         this.log('debug', 'Successfully connected using deprecated HTTP+SSE transport.');
