@@ -17,8 +17,8 @@ describe('OAuthCallbackServer', () => {
 
   describe('server lifecycle', () => {
     it('should start and stop server', async () => {
-      const callbackUrl = await server.start();
-      expect(callbackUrl).toMatch(/^http:\/\/localhost:\d+\/oauth\/callback$/);
+      const { url } = await server.start();
+      expect(url).toMatch(/^http:\/\/localhost:\d+\/oauth\/callback$/);
       
       await server.stop();
     });
@@ -53,7 +53,7 @@ describe('OAuthCallbackServer', () => {
 
   describe('callback handling', () => {
     it('should handle valid OAuth callback', async () => {
-      const callbackUrl = await server.start();
+      const { url: callbackUrl } = await server.start();
       const url = new URL(callbackUrl);
       const port = parseInt(url.port);
       
@@ -75,7 +75,7 @@ describe('OAuthCallbackServer', () => {
     });
 
     it('should handle OAuth callback with additional parameters', async () => {
-      const callbackUrl = await server.start();
+      const { url: callbackUrl } = await server.start();
       const url = new URL(callbackUrl);
       const port = parseInt(url.port);
       
@@ -94,7 +94,7 @@ describe('OAuthCallbackServer', () => {
     });
 
     it('should handle OAuth error callback', async () => {
-      const callbackUrl = await server.start();
+      const { url: callbackUrl } = await server.start();
       const url = new URL(callbackUrl);
       const port = parseInt(url.port);
       
@@ -108,11 +108,9 @@ describe('OAuthCallbackServer', () => {
     });
 
     it('should reject callback with missing code', async () => {
-      const callbackUrl = await server.start();
+      const { url: callbackUrl, promise: callbackPromise } = await server.start();
       const url = new URL(callbackUrl);
       const port = parseInt(url.port);
-      
-      const callbackPromise = server.waitForCallback();
       
       const response = await fetch(`http://localhost:${port}/oauth/callback?state=test-state`);
       
@@ -122,11 +120,9 @@ describe('OAuthCallbackServer', () => {
     });
 
     it('should reject callback with missing state', async () => {
-      const callbackUrl = await server.start();
+      const { url: callbackUrl, promise: callbackPromise } = await server.start();
       const url = new URL(callbackUrl);
       const port = parseInt(url.port);
-      
-      const callbackPromise = server.waitForCallback();
       
       const response = await fetch(`http://localhost:${port}/oauth/callback?code=test-code`);
       
@@ -136,7 +132,7 @@ describe('OAuthCallbackServer', () => {
     });
 
     it('should reject non-GET requests', async () => {
-      const callbackUrl = await server.start();
+      const { url: callbackUrl } = await server.start();
       const url = new URL(callbackUrl);
       const port = parseInt(url.port);
       
@@ -148,7 +144,7 @@ describe('OAuthCallbackServer', () => {
     });
 
     it('should reject requests to wrong path', async () => {
-      const callbackUrl = await server.start();
+      const { url: callbackUrl } = await server.start();
       const url = new URL(callbackUrl);
       const port = parseInt(url.port);
       
@@ -163,9 +159,9 @@ describe('OAuthCallbackServer', () => {
       const shortTimeoutServer = new OAuthCallbackServer({ timeout: 100 });
       
       try {
-        await shortTimeoutServer.start();
+        const { promise: callbackPromise } = await shortTimeoutServer.start();
         
-        await expect(shortTimeoutServer.waitForCallback()).rejects.toThrow('OAuth callback timeout');
+        await expect(callbackPromise).rejects.toThrow('OAuth callback timeout');
       } finally {
         await shortTimeoutServer.stop();
       }
@@ -175,11 +171,9 @@ describe('OAuthCallbackServer', () => {
       const shortTimeoutServer = new OAuthCallbackServer({ timeout: 1000 });
       
       try {
-        const callbackUrl = await shortTimeoutServer.start();
+        const { url: callbackUrl, promise: callbackPromise } = await shortTimeoutServer.start();
         const url = new URL(callbackUrl);
         const port = parseInt(url.port);
-        
-        const callbackPromise = shortTimeoutServer.waitForCallback();
         
         // Send callback quickly
         setTimeout(async () => {
@@ -199,7 +193,7 @@ describe('OAuthCallbackServer', () => {
       const customServer = new OAuthCallbackServer({ port: 9999 });
       
       try {
-        const callbackUrl = await customServer.start();
+        const { url: callbackUrl } = await customServer.start();
         expect(callbackUrl).toBe('http://localhost:9999/oauth/callback');
       } finally {
         await customServer.stop();
@@ -210,7 +204,7 @@ describe('OAuthCallbackServer', () => {
       const customServer = new OAuthCallbackServer({ host: '127.0.0.1' });
       
       try {
-        const callbackUrl = await customServer.start();
+        const { url: callbackUrl } = await customServer.start();
         expect(callbackUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/oauth\/callback$/);
       } finally {
         await customServer.stop();
@@ -220,12 +214,9 @@ describe('OAuthCallbackServer', () => {
 
   describe('HTML responses', () => {
     it('should return success HTML for valid callback', async () => {
-      const callbackUrl = await server.start();
+      const { url: callbackUrl } = await server.start();
       const url = new URL(callbackUrl);
       const port = parseInt(url.port);
-      
-      // Don't wait for callback promise to avoid consuming the result
-      server.waitForCallback().catch(() => {}); // Ignore promise
       
       const response = await fetch(`http://localhost:${port}/oauth/callback?code=test-code&state=test-state`);
       const html = await response.text();
@@ -236,7 +227,7 @@ describe('OAuthCallbackServer', () => {
     });
 
     it('should return error HTML for invalid callback', async () => {
-      const callbackUrl = await server.start();
+      const { url: callbackUrl } = await server.start();
       const url = new URL(callbackUrl);
       const port = parseInt(url.port);
       
@@ -249,7 +240,7 @@ describe('OAuthCallbackServer', () => {
     });
 
     it('should escape HTML in error messages', async () => {
-      const callbackUrl = await server.start();
+      const { url: callbackUrl } = await server.start();
       const url = new URL(callbackUrl);
       const port = parseInt(url.port);
       

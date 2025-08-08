@@ -20,6 +20,13 @@ export interface CallbackResult {
   additionalParams?: Record<string, string>;
 }
 
+export interface CallbackServerResult {
+  /** Callback URL for OAuth redirect */
+  url: string;
+  /** Promise that resolves when callback is received */
+  promise: Promise<CallbackResult>;
+}
+
 /**
  * Ephemeral HTTP server for handling OAuth callbacks
  * Creates a temporary server that listens for the OAuth redirect
@@ -41,12 +48,15 @@ export class OAuthCallbackServer {
   }
 
   /**
-   * Start the callback server and return the callback URL
+   * Start the callback server and return callback URL with promise
    */
-  async start(): Promise<string> {
+  async start(): Promise<{ url: string; promise: Promise<CallbackResult> }> {
     if (this.server) {
       throw new Error('Callback server is already running');
     }
+
+    // Initialize callback promise before starting server
+    this.initializeCallbackPromise();
 
     return new Promise((resolve, reject) => {
       this.server = createServer(this.handleRequest.bind(this));
@@ -61,21 +71,30 @@ export class OAuthCallbackServer {
         }
 
         const callbackUrl = `http://${this.config.host}:${address.port}/oauth/callback`;
-        resolve(callbackUrl);
+        resolve({
+          url: callbackUrl,
+          promise: this.callbackPromise!, // Guaranteed to exist
+        });
       });
     });
   }
 
   /**
-   * Wait for OAuth callback
+   * Wait for OAuth callback (simplified - use start().promise instead)
    */
   async waitForCallback(): Promise<CallbackResult> {
-    if (!this.server) {
-      throw new Error('Callback server is not running');
+    if (!this.callbackPromise) {
+      throw new Error('Callback server is not running or promise not initialized');
     }
+    return this.callbackPromise;
+  }
 
+  /**
+   * Initialize callback promise with timeout
+   */
+  private initializeCallbackPromise(): void {
     if (this.callbackPromise) {
-      return this.callbackPromise;
+      return;
     }
 
     this.callbackPromise = new Promise<CallbackResult>((resolve, reject) => {
@@ -88,8 +107,6 @@ export class OAuthCallbackServer {
         reject(new Error('OAuth callback timeout'));
       }, this.config.timeout!);
     });
-
-    return this.callbackPromise;
   }
 
   /**

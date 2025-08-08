@@ -39,7 +39,10 @@ describe('OAuthClientManager', () => {
     vi.clearAllMocks();
     
     mockCallbackServer = {
-      start: vi.fn().mockResolvedValue('http://localhost:12345/oauth/callback'),
+      start: vi.fn().mockResolvedValue({
+        url: 'http://localhost:12345/oauth/callback',
+        promise: Promise.resolve({ code: 'test-code', state: 'test-state' })
+      }),
       waitForCallback: vi.fn(),
       stop: vi.fn().mockResolvedValue(undefined),
     };
@@ -161,16 +164,22 @@ describe('OAuthClientManager', () => {
           issued_at: Math.floor(Date.now() / 1000),
         };
 
-        mockCallbackServer.waitForCallback.mockImplementation(async () => {
-          await new Promise(resolve => setTimeout(resolve, 10));
+        // Create a promise that resolves with the callback result after auth URL is called
+        const callbackPromise = new Promise(async (resolve) => {
+          await new Promise(setImmediate); // Wait for auth URL to be called
           const authURLCall = mockOnAuthURL.mock.calls[0];
           const authURL = authURLCall[0];
           const actualState = new URL(authURL).searchParams.get('state');
           
-          return {
+          resolve({
             code: 'test-auth-code',
             state: actualState,
-          };
+          });
+        });
+        
+        mockCallbackServer.start.mockResolvedValue({
+          url: 'http://localhost:12345/oauth/callback',
+          promise: callbackPromise
         });
 
         (global.fetch as any).mockResolvedValue({
@@ -183,7 +192,6 @@ describe('OAuthClientManager', () => {
         expect(result.access_token).toBe('new-access-token');
         expect(mockOnAuthURL).toHaveBeenCalled();
         expect(mockCallbackServer.start).toHaveBeenCalled();
-        expect(mockCallbackServer.waitForCallback).toHaveBeenCalled();
         expect(mockCallbackServer.stop).toHaveBeenCalled();
       });
     });

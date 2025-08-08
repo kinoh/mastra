@@ -21,7 +21,7 @@ import {
   RefreshFailedError as RefreshFailedErrorClass,
   AuthorizationError as AuthorizationErrorClass,
 } from './oauth-types';
-import { OAuthCallbackServer, type CallbackServerConfig } from './oauth-callback-server';
+import { OAuthCallbackServer, type CallbackServerConfig, type CallbackServerResult } from './oauth-callback-server';
 import { TokenStorageFactory } from './token-storage';
 
 /**
@@ -338,7 +338,8 @@ export class OAuthClientManager {
     const callbackServer = new OAuthCallbackServer();
     
     try {
-      const callbackUrl = await callbackServer.start();
+      // Start server and get callback URL with promise
+      const { url: callbackUrl, promise: callbackPromise } = await callbackServer.start();
       const redirectUri = this.config.redirectUri || callbackUrl;
       
       const authUrl = this.buildAuthorizationUrl(pkceChallenge, state, redirectUri);
@@ -346,8 +347,8 @@ export class OAuthClientManager {
       // Present auth URL to user
       await this.config.onAuthURL(authUrl, state);
 
-      // Wait for OAuth callback
-      const callbackResult = await callbackServer.waitForCallback();
+      // Wait for OAuth callback using the integrated promise
+      const callbackResult = await callbackPromise;
 
       // Handle the callback
       return await this.handleCallback(
