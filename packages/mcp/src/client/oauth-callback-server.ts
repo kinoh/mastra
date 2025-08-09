@@ -71,10 +71,14 @@ export class OAuthCallbackServer {
         }
 
         const callbackUrl = `http://${this.config.host}:${address.port}/oauth/callback`;
-        resolve({
-          url: callbackUrl,
-          promise: this.callbackPromise!, // Guaranteed to exist
-        });
+
+        // Ensure server is actually listening
+        setTimeout(() => {
+          resolve({
+            url: callbackUrl,
+            promise: this.callbackPromise!, // Guaranteed to exist
+          });
+        }, 1);
       });
     });
   }
@@ -161,13 +165,13 @@ export class OAuthCallbackServer {
     
     // Only handle OAuth callback path
     if (reqUrl.pathname !== '/oauth/callback') {
-      this.sendErrorResponse(res, 404, 'Not Found');
+      this.sendErrorResponse(res, 404, 'Not Found', new Error('Invalid request 404'));
       return;
     }
 
     // Only allow GET requests
     if (req.method !== 'GET') {
-      this.sendErrorResponse(res, 405, 'Method Not Allowed');
+      this.sendErrorResponse(res, 405, 'Method Not Allowed', new Error('Invalid request 405'));
       return;
     }
 
@@ -175,11 +179,7 @@ export class OAuthCallbackServer {
       this.handleOAuthCallback(reqUrl.searchParams, res);
     } catch (error) {
       console.error('Error handling OAuth callback:', error);
-      this.sendErrorResponse(res, 500, 'Internal Server Error');
-      
-      if (this.callbackReject) {
-        this.callbackReject(error instanceof Error ? error : new Error('Unknown error'));
-      }
+      this.sendErrorResponse(res, 500, 'Internal Server Error', error instanceof Error ? error : new Error('Unknown error'));
     }
   }
 
@@ -195,37 +195,22 @@ export class OAuthCallbackServer {
     // Check for OAuth error response
     if (error) {
       const authError = new AuthorizationError(error, errorDescription || undefined);
-      this.sendErrorResponse(res, 400, `OAuth Error: ${error}`);
-      
-      if (this.callbackReject) {
-        this.callbackReject(authError);
-      }
+      this.sendErrorResponse(res, 400, `OAuth Error: ${error}`, authError);
       return;
     }
 
     // Validate required parameters
     if (!code) {
       const authError = new AuthorizationError('invalid_request', 'Missing authorization code');
-      this.sendErrorResponse(res, 400, 'Missing authorization code');
-      
-      if (this.callbackReject) {
-        this.callbackReject(authError);
-      }
+      this.sendErrorResponse(res, 400, 'Missing authorization code', authError);
       return;
     }
 
     if (!state) {
       const authError = new AuthorizationError('invalid_request', 'Missing state parameter');
-      this.sendErrorResponse(res, 400, 'Missing state parameter');
-      
-      if (this.callbackReject) {
-        this.callbackReject(authError);
-      }
+      this.sendErrorResponse(res, 400, 'Missing state parameter', authError);
       return;
     }
-
-    // Send success response to user
-    this.sendSuccessResponse(res);
 
     // Collect additional parameters
     const additionalParams: Record<string, string> = {};
@@ -235,20 +220,18 @@ export class OAuthCallbackServer {
       }
     }
 
-    // Resolve the callback promise
-    if (this.callbackResolve) {
-      this.callbackResolve({
-        code,
-        state,
-        additionalParams: Object.keys(additionalParams).length > 0 ? additionalParams : undefined,
-      });
-    }
+    // Send success response to user
+    this.sendSuccessResponse(res, {
+      code,
+      state,
+      additionalParams: Object.keys(additionalParams).length > 0 ? additionalParams : undefined,
+    });
   }
 
   /**
    * Send success response to browser
    */
-  private sendSuccessResponse(res: ServerResponse): void {
+  private sendSuccessResponse(res: ServerResponse, result: CallbackResult): void {
     const html = `
 <!DOCTYPE html>
 <html>
@@ -284,13 +267,17 @@ export class OAuthCallbackServer {
       'Content-Type': 'text/html',
       'Content-Length': Buffer.byteLength(html),
     });
-    res.end(html);
+    res.end(html, () => {
+      if (this.callbackResolve) {
+        this.callbackResolve(result);
+      }
+    });
   }
 
   /**
    * Send error response to browser
    */
-  private sendErrorResponse(res: ServerResponse, statusCode: number, message: string): void {
+  private sendErrorResponse(res: ServerResponse, statusCode: number, message: string, error: Error): void {
     const html = `
 <!DOCTYPE html>
 <html>
@@ -318,7 +305,14 @@ export class OAuthCallbackServer {
       'Content-Type': 'text/html',
       'Content-Length': Buffer.byteLength(html),
     });
-    res.end(html);
+    console.log('Sending error response:', statusCode, message);
+    res.end(html, () => {
+      console.log('Error response sent');
+      if (this.callbackReject) {
+        console.error('OAuth callback failed:', error);
+        this.callbackReject(error);
+      }
+    });
   }
 
   /**
