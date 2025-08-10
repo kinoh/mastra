@@ -175,7 +175,6 @@ class CallbackHandler {
     });
     res.end(html, () => {
       clearTimeout(this.timeoutHandle);
-      console.error('OAuth callback failed:', error);
       this.reject(error);
     });
   }
