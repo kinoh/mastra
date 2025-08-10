@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { OAuthCallbackServer, type CallbackServerConfig } from './oauth-callback-server';
-import { AuthorizationError } from './oauth-types';
+import { CallbackResult, OAuthCallbackServer, type CallbackServerConfig } from './oauth-callback-server';
+import { AuthorizationError, OAuthError } from './oauth-types';
 
 describe('OAuthCallbackServer', () => {
   let server: OAuthCallbackServer;
@@ -53,18 +53,19 @@ describe('OAuthCallbackServer', () => {
 
   describe('callback handling', () => {
     it('should handle valid OAuth callback', async () => {
-      const { url: callbackUrl, promise: callbackPromise } = await server.start();
-      const url = new URL(callbackUrl);
-      const port = parseInt(url.port);
+      const { url, promise } = await server.start();
+      const port = parseInt(new URL(url).port);
 
-      // Simulate OAuth callback
-      const response = await fetch(`http://localhost:${port}/oauth/callback?code=test-code&state=test-state`);
-      
-      expect(response.ok).toBe(true);
-      expect(response.headers.get('content-type')).toMatch(/text\/html/);
-      
-      const result = await callbackPromise;
-      expect(result).toEqual({
+      const [fetchResult, callbackResult] = await Promise.allSettled([
+        fetch(`http://localhost:${port}/oauth/callback?code=test-code&state=test-state`),
+        promise,
+      ]);
+
+      expect(fetchResult.status).toBe('fulfilled');
+      expect((fetchResult as PromiseFulfilledResult<Response>).value.ok).toBe(true);
+
+      expect(callbackResult.status).toBe('fulfilled');
+      expect((callbackResult as PromiseFulfilledResult<CallbackResult>).value).toEqual({
         code: 'test-code',
         state: 'test-state',
         additionalParams: undefined,
@@ -72,15 +73,19 @@ describe('OAuthCallbackServer', () => {
     });
 
     it('should handle OAuth callback with additional parameters', async () => {
-      const { url: callbackUrl, promise: callbackPromise } = await server.start();
-      const url = new URL(callbackUrl);
-      const port = parseInt(url.port);
-      
-      const response = await fetch(`http://localhost:${port}/oauth/callback?code=test-code&state=test-state&custom=value`);
-      expect(response.ok).toBe(true);
-      
-      const result = await callbackPromise;
-      expect(result).toEqual({
+      const { url, promise } = await server.start();
+      const port = parseInt(new URL(url).port);
+
+      const [fetchResult, callbackResult] = await Promise.allSettled([
+        fetch(`http://localhost:${port}/oauth/callback?code=test-code&state=test-state&custom=value`),
+        promise,
+      ]);
+
+      expect(fetchResult.status).toBe('fulfilled');
+      expect((fetchResult as PromiseFulfilledResult<Response>).value.ok).toBe(true);
+
+      expect(callbackResult.status).toBe('fulfilled');
+      expect((callbackResult as PromiseFulfilledResult<CallbackResult>).value).toEqual({
         code: 'test-code',
         state: 'test-state',
         additionalParams: {
@@ -93,64 +98,85 @@ describe('OAuthCallbackServer', () => {
       const errorServer = new OAuthCallbackServer({ port: 30006 });
       
       try {
-        const { url: callbackUrl, promise: callbackPromise } = await errorServer.start();
-        
-        const response = await fetch(`${callbackUrl}?error=access_denied&error_description=User+denied`);
+        const { url, promise } = await errorServer.start();
 
-        expect(response.status).toBe(400);
-        
-        await expect(callbackPromise).rejects.toThrow(AuthorizationError);
+        const [fetchResult, callbackResult] = await Promise.allSettled([
+          fetch(`${url}?error=access_denied&error_description=User+denied`),
+          promise,
+        ]);
+
+        expect(fetchResult.status).toBe('fulfilled');
+        expect((fetchResult as PromiseFulfilledResult<Response>).value.status).toBe(400);
+
+        expect(callbackResult.status).toBe('rejected');
+        expect((callbackResult as PromiseRejectedResult).reason).toBeInstanceOf(OAuthError);
       } finally {
         await errorServer.stop();
       }
     });
 
     it('should reject callback with missing code', async () => {
-      const { url: callbackUrl, promise: callbackPromise } = await server.start();
-      const url = new URL(callbackUrl);
-      const port = parseInt(url.port);
+      const { url, promise } = await server.start();
+      const port = parseInt(new URL(url).port);
 
-      const response = await fetch(`http://localhost:${port}/oauth/callback?state=test-state`);
+      const [fetchResult, callbackResult] = await Promise.allSettled([
+        fetch(`http://localhost:${port}/oauth/callback?state=test-state`),
+        promise,
+      ]);
 
-      expect(response.status).toBe(400);
+      expect(fetchResult.status).toBe('fulfilled');
+      expect((fetchResult as PromiseFulfilledResult<Response>).value.status).toBe(400);
 
-      await expect(callbackPromise).rejects.toThrow(AuthorizationError);
+      expect(callbackResult.status).toBe('rejected');
+      expect((callbackResult as PromiseRejectedResult).reason).toBeInstanceOf(OAuthError);
     });
 
     it('should reject callback with missing state', async () => {
-      const { url: callbackUrl, promise: callbackPromise } = await server.start();
-      const url = new URL(callbackUrl);
-      const port = parseInt(url.port);
-      
-      const response = await fetch(`http://localhost:${port}/oauth/callback?code=test-code`);
+      const { url, promise } = await server.start();
+      const port = parseInt(new URL(url).port);
 
-      expect(response.status).toBe(400);
+      const [fetchResult, callbackResult] = await Promise.allSettled([
+        fetch(`http://localhost:${port}/oauth/callback?code=test-code`),
+        promise,
+      ]);
 
-      await expect(callbackPromise).rejects.toThrow(AuthorizationError);
+      expect(fetchResult.status).toBe('fulfilled');
+      expect((fetchResult as PromiseFulfilledResult<Response>).value.status).toBe(400);
+
+      expect(callbackResult.status).toBe('rejected');
+      expect((callbackResult as PromiseRejectedResult).reason).toBeInstanceOf(AuthorizationError);
     });
 
     it('should reject non-GET requests', async () => {
-      const { url: callbackUrl, promise } = await server.start();
-      const url = new URL(callbackUrl);
-      const port = parseInt(url.port);
-      
-      const response = await fetch(`http://localhost:${port}/oauth/callback`, {
-        method: 'POST',
-      });
-      expect(response.status).toBe(405);
+      const { url, promise } = await server.start();
+      const port = parseInt(new URL(url).port);
 
-      await expect(promise).rejects.toThrow();
+      const [fetchResult, callbackResult] = await Promise.allSettled([
+        fetch(`http://localhost:${port}/oauth/callback`, {
+          method: 'POST',
+        }),
+        promise,
+      ]);
+
+      expect(fetchResult.status).toBe('fulfilled');
+      expect((fetchResult as PromiseFulfilledResult<Response>).value.status).toBe(405);
+
+      expect(callbackResult.status).toBe('rejected');
     });
 
     it('should reject requests to wrong path', async () => {
-      const { url: callbackUrl, promise } = await server.start();
-      const url = new URL(callbackUrl);
-      const port = parseInt(url.port);
-      
-      const response = await fetch(`http://localhost:${port}/wrong/path`);
-      expect(response.status).toBe(404);
+      const { url, promise } = await server.start();
+      const port = parseInt(new URL(url).port);
 
-      await expect(promise).rejects.toThrow();
+      const [fetchResult, callbackResult] = await Promise.allSettled([
+        fetch(`http://localhost:${port}/wrong/path`),
+        promise,
+      ]);
+
+      expect(fetchResult.status).toBe('fulfilled');
+      expect((fetchResult as PromiseFulfilledResult<Response>).value.status).toBe(404);
+
+      expect(callbackResult.status).toBe('rejected');
     });
   });
 
@@ -214,48 +240,71 @@ describe('OAuthCallbackServer', () => {
 
   describe('HTML responses', () => {
     it('should return success HTML for valid callback', async () => {
-      const { url: callbackUrl, promise } = await server.start();
-      const url = new URL(callbackUrl);
-      const port = parseInt(url.port);
-      
-      const response = await fetch(`http://localhost:${port}/oauth/callback?code=test-code&state=test-state`);
+      const { url, promise } = await server.start();
+      const port = parseInt(new URL(url).port);
+
+      const [fetchResult, callbackResult] = await Promise.allSettled([
+        fetch(`http://localhost:${port}/oauth/callback?code=test-code&state=test-state`),
+        promise,
+      ]);
+
+      expect(fetchResult.status).toBe('fulfilled');
+      const response = (fetchResult as PromiseFulfilledResult<Response>).value;
+      expect(response.status).toBe(200);
+
       const html = await response.text();
-      
       expect(html).toContain('Authorization Complete');
       expect(html).toContain('✅');
       expect(response.headers.get('content-type')).toMatch(/text\/html/);
 
-      await expect(promise).resolves.toBeDefined();
+      expect(callbackResult.status).toBe('fulfilled');
+      expect((callbackResult as PromiseFulfilledResult<CallbackResult>).value).toEqual({
+        code: 'test-code',
+        state: 'test-state',
+      });
     });
 
     it('should return error HTML for invalid callback', async () => {
       const { url: callbackUrl, promise } = await server.start();
       const url = new URL(callbackUrl);
       const port = parseInt(url.port);
-      
-      const response = await fetch(`http://localhost:${port}/oauth/callback?error=access_denied`);
+
+      const [fetchResult, callbackResult] = await Promise.allSettled([
+        fetch(`http://localhost:${port}/oauth/callback?error=access_denied`),
+        promise,
+      ]);
+
+      expect(fetchResult.status).toBe('fulfilled');
+      const response = (fetchResult as PromiseFulfilledResult<Response>).value;
       const html = await response.text();
-      
+
       expect(html).toContain('Authorization Error');
       expect(html).toContain('❌');
       expect(response.status).toBe(400);
 
-      await expect(promise).rejects.toThrow();
+      expect(callbackResult.status).toBe('rejected');
+      expect((callbackResult as PromiseRejectedResult).reason).toBeInstanceOf(AuthorizationError) ;
     });
 
     it('should escape HTML in error messages', async () => {
       const escapeServer = new OAuthCallbackServer({ port: 30007 });
       
       try {
-        const { url: callbackUrl, promise } = await escapeServer.start();
+        const { url, promise } = await escapeServer.start();
 
-        const response = await fetch(`${callbackUrl}?error=%3Cscript%3Ealert(1)%3C/script%3E`);
+        const [fetchResult, callbackResult] = await Promise.allSettled([
+          fetch(`${url}?error=%3Cscript%3Ealert(1)%3C/script%3E`),
+          promise,
+        ]);
+
+        const response = (fetchResult as PromiseFulfilledResult<Response>).value;
         const html = await response.text();
         
         expect(html).not.toContain('<script>');
         expect(html).toContain('&lt;script&gt;');
 
-      await expect(promise).rejects.toThrow();
+        expect(callbackResult.status).toBe('rejected');
+        expect((callbackResult as PromiseRejectedResult).reason).toBeInstanceOf(AuthorizationError);
       } finally {
         await escapeServer.stop();
       }
