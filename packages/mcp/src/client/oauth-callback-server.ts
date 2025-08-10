@@ -2,159 +2,37 @@ import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { URL, URLSearchParams } from 'url';
 import { AuthorizationError } from './oauth-types';
 
-export interface CallbackServerConfig {
-  /** Port to listen on (0 for random available port) */
-  port?: number;
-  /** Host to bind to (default: localhost) */
-  host?: string;
-  /** Timeout in milliseconds to wait for callback (default: 300000ms = 5 minutes) */
-  timeout?: number;
-}
-
-export interface CallbackResult {
-  /** Authorization code from OAuth provider */
-  code: string;
-  /** State parameter for CSRF protection */
-  state: string;
-  /** Additional parameters from callback */
-  additionalParams?: Record<string, string>;
-}
-
-export interface CallbackServerResult {
-  /** Callback URL for OAuth redirect */
-  url: string;
-  /** Promise that resolves when callback is received */
-  promise: Promise<CallbackResult>;
-}
-
 /**
- * Ephemeral HTTP server for handling OAuth callbacks
- * Creates a temporary server that listens for the OAuth redirect
+ * Handles OAuth callback processing with dedicated promise management
  */
-export class OAuthCallbackServer {
-  private config: CallbackServerConfig;
-  private server: ReturnType<typeof createServer> | null = null;
-  private callbackPromise: Promise<CallbackResult> | null = null;
-  private callbackResolve: ((result: CallbackResult) => void) | null = null;
-  private callbackReject: ((error: Error) => void) | null = null;
-  private timeoutHandle: NodeJS.Timeout | null = null;
+class CallbackHandler {
+  private readonly result: Promise<CallbackResult>;
+  private readonly resolve: (result: CallbackResult) => void;
+  private readonly reject: (error: Error) => void;
+  private readonly timeoutHandle: NodeJS.Timeout;
 
-  constructor(config: CallbackServerConfig = {}) {
-    this.config = {
-      port: config.port || 0, // Use 0 for random available port
-      host: config.host || 'localhost',
-      timeout: config.timeout || 300000, // 5 minutes default
-    };
-  }
+  constructor(timeout: number) {
+    let resolveRef: (result: CallbackResult) => void;
+    let rejectRef: (error: Error) => void;
 
-  /**
-   * Start the callback server and return callback URL with promise
-   */
-  async start(): Promise<{ url: string; promise: Promise<CallbackResult> }> {
-    if (this.server) {
-      throw new Error('Callback server is already running');
-    }
-
-    // Initialize callback promise before starting server
-    this.initializeCallbackPromise();
-
-    return new Promise((resolve, reject) => {
-      this.server = createServer(this.handleRequest.bind(this));
-
-      this.server.on('error', reject);
-
-      this.server.listen(this.config.port, this.config.host, () => {
-        const address = this.server!.address();
-        if (!address || typeof address === 'string') {
-          reject(new Error('Failed to get server address'));
-          return;
-        }
-
-        const callbackUrl = `http://${this.config.host}:${address.port}/oauth/callback`;
-
-        // Ensure server is actually listening
-        setTimeout(() => {
-          resolve({
-            url: callbackUrl,
-            promise: this.callbackPromise!, // Guaranteed to exist
-          });
-        }, 1);
-      });
+    this.result = new Promise<CallbackResult>((resolve, reject) => {
+      resolveRef = resolve;
+      rejectRef = reject;
     });
+
+    this.resolve = resolveRef!;
+    this.reject = rejectRef!;
+
+    this.timeoutHandle = setTimeout(() => {
+      this.reject(new Error('OAuth callback timeout'));
+    }, timeout);
   }
 
-  /**
-   * Wait for OAuth callback (simplified - use start().promise instead)
-   */
-  async waitForCallback(): Promise<CallbackResult> {
-    if (!this.callbackPromise) {
-      throw new Error('Callback server is not running or promise not initialized');
-    }
-    return this.callbackPromise;
+  get promise(): Promise<CallbackResult> {
+    return this.result;
   }
 
-  /**
-   * Initialize callback promise with timeout
-   */
-  private initializeCallbackPromise(): void {
-    if (this.callbackPromise) {
-      return;
-    }
-
-    this.callbackPromise = new Promise<CallbackResult>((resolve, reject) => {
-      this.callbackResolve = resolve;
-      this.callbackReject = reject;
-
-      // Set timeout
-      this.timeoutHandle = setTimeout(() => {
-        this.cleanup();
-        reject(new Error('OAuth callback timeout'));
-      }, this.config.timeout!);
-    });
-  }
-
-  /**
-   * Stop the callback server
-   */
-  async stop(): Promise<void> {
-    if (!this.server) {
-      return;
-    }
-
-    return new Promise<void>((resolve, reject) => {
-      this.cleanup();
-      
-      this.server!.close((error) => {
-        this.server = null;
-        if (error) {
-          reject(error);
-        } else {
-          resolve();
-        }
-      });
-    });
-  }
-
-  /**
-   * Get the callback URL if server is running
-   */
-  getCallbackUrl(): string | null {
-    if (!this.server) {
-      return null;
-    }
-
-    const address = this.server.address();
-    if (!address || typeof address === 'string') {
-      return null;
-    }
-
-    return `http://${this.config.host}:${address.port}/oauth/callback`;
-  }
-
-  /**
-   * Handle incoming HTTP requests
-   */
-  private handleRequest(req: IncomingMessage, res: ServerResponse): void {
+  handleRequest = (req: IncomingMessage, res: ServerResponse): void => {
     // Set CORS headers for security
     res.setHeader('Access-Control-Allow-Origin', 'null');
     res.setHeader('Access-Control-Allow-Methods', 'GET');
@@ -181,11 +59,8 @@ export class OAuthCallbackServer {
       console.error('Error handling OAuth callback:', error);
       this.sendErrorResponse(res, 500, 'Internal Server Error', error instanceof Error ? error : new Error('Unknown error'));
     }
-  }
+  };
 
-  /**
-   * Handle OAuth callback with query parameters
-   */
   private handleOAuthCallback(params: URLSearchParams, res: ServerResponse): void {
     const code = params.get('code');
     const state = params.get('state');
@@ -228,9 +103,6 @@ export class OAuthCallbackServer {
     });
   }
 
-  /**
-   * Send success response to browser
-   */
   private sendSuccessResponse(res: ServerResponse, result: CallbackResult): void {
     const html = `
 <!DOCTYPE html>
@@ -268,15 +140,11 @@ export class OAuthCallbackServer {
       'Content-Length': Buffer.byteLength(html),
     });
     res.end(html, () => {
-      if (this.callbackResolve) {
-        this.callbackResolve(result);
-      }
+      clearTimeout(this.timeoutHandle);
+      this.resolve(result);
     });
   }
 
-  /**
-   * Send error response to browser
-   */
   private sendErrorResponse(res: ServerResponse, statusCode: number, message: string, error: Error): void {
     const html = `
 <!DOCTYPE html>
@@ -305,19 +173,13 @@ export class OAuthCallbackServer {
       'Content-Type': 'text/html',
       'Content-Length': Buffer.byteLength(html),
     });
-    console.log('Sending error response:', statusCode, message);
     res.end(html, () => {
-      console.log('Error response sent');
-      if (this.callbackReject) {
-        console.error('OAuth callback failed:', error);
-        this.callbackReject(error);
-      }
+      clearTimeout(this.timeoutHandle);
+      console.error('OAuth callback failed:', error);
+      this.reject(error);
     });
   }
 
-  /**
-   * Escape HTML characters to prevent XSS
-   */
   private escapeHtml(text: string): string {
     const map: Record<string, string> = {
       '&': '&amp;',
@@ -329,17 +191,137 @@ export class OAuthCallbackServer {
     return text.replace(/[&<>"']/g, (m) => map[m]);
   }
 
+  cleanup(): void {
+    clearTimeout(this.timeoutHandle);
+  }
+}
+
+export interface CallbackServerConfig {
+  /** Port to listen on (0 for random available port) */
+  port?: number;
+  /** Host to bind to (default: localhost) */
+  host?: string;
+  /** Timeout in milliseconds to wait for callback (default: 300000ms = 5 minutes) */
+  timeout?: number;
+}
+
+export interface CallbackResult {
+  /** Authorization code from OAuth provider */
+  code: string;
+  /** State parameter for CSRF protection */
+  state: string;
+  /** Additional parameters from callback */
+  additionalParams?: Record<string, string>;
+}
+
+export interface CallbackServerResult {
+  /** Callback URL for OAuth redirect */
+  url: string;
+  /** Promise that resolves when callback is received */
+  promise: Promise<CallbackResult>;
+}
+
+/**
+ * Ephemeral HTTP server for handling OAuth callbacks
+ * Creates a temporary server that listens for the OAuth redirect
+ */
+export class OAuthCallbackServer {
+  private readonly config: CallbackServerConfig;
+  private server: ReturnType<typeof createServer> | null = null;
+  private handler: CallbackHandler | null = null;
+
+  constructor(config: CallbackServerConfig = {}) {
+    this.config = {
+      port: config.port || 0, // Use 0 for random available port
+      host: config.host || 'localhost',
+      timeout: config.timeout || 300000, // 5 minutes default
+    };
+  }
+
   /**
-   * Clean up resources
+   * Start the callback server and return callback URL with promise
    */
-  private cleanup(): void {
-    if (this.timeoutHandle) {
-      clearTimeout(this.timeoutHandle);
-      this.timeoutHandle = null;
+  async start(): Promise<{ url: string; promise: Promise<CallbackResult> }> {
+    if (this.server) {
+      throw new Error('Callback server is already running');
     }
 
-    this.callbackPromise = null;
-    this.callbackResolve = null;
-    this.callbackReject = null;
+    // Create handler with timeout configuration
+    this.handler = new CallbackHandler(this.config.timeout!);
+
+    return new Promise((resolve, reject) => {
+      this.server = createServer(this.handler!.handleRequest);
+
+      this.server.on('error', reject);
+
+      this.server.listen(this.config.port, this.config.host, () => {
+        const address = this.server!.address();
+        if (!address || typeof address === 'string') {
+          reject(new Error('Failed to get server address'));
+          return;
+        }
+
+        const callbackUrl = `http://${this.config.host}:${address.port}/oauth/callback`;
+
+        // Ensure server is actually listening
+        setTimeout(() => {
+          resolve({
+            url: callbackUrl,
+            promise: this.handler!.promise,
+          });
+        }, 1);
+      });
+    });
+  }
+
+  /**
+   * Wait for OAuth callback (simplified - use start().promise instead)
+   */
+  async waitForCallback(): Promise<CallbackResult> {
+    if (!this.handler) {
+      throw new Error('Callback server is not running or handler not initialized');
+    }
+    return this.handler.promise;
+  }
+
+  /**
+   * Stop the callback server
+   */
+  async stop(): Promise<void> {
+    if (!this.server) {
+      return;
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      if (this.handler) {
+        this.handler.cleanup();
+        this.handler = null;
+      }
+      
+      this.server!.close((error) => {
+        this.server = null;
+        if (error) {
+          reject(error);
+        } else {
+          resolve();
+        }
+      });
+    });
+  }
+
+  /**
+   * Get the callback URL if server is running
+   */
+  getCallbackUrl(): string | null {
+    if (!this.server) {
+      return null;
+    }
+
+    const address = this.server.address();
+    if (!address || typeof address === 'string') {
+      return null;
+    }
+
+    return `http://${this.config.host}:${address.port}/oauth/callback`;
   }
 }
