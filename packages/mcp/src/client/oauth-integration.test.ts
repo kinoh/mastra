@@ -3,14 +3,7 @@ import { InternalMastraMCPClient } from './client';
 import type { MastraMCPServerDefinition } from './client';
 import { TokenStorageFactory } from './token-storage';
 
-// Mock the OAuth dependencies
-vi.mock('./oauth-client-manager');
-vi.mock('./oauth-callback-server');
-
 describe('OAuth Integration Tests', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
 
   describe('InternalMastraMCPClient with OAuth', () => {
     it('should initialize with OAuth configuration', () => {
