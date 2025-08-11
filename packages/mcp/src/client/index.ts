@@ -7,6 +7,5 @@ export { OAuthCallbackServer, type CallbackServerConfig } from './oauth-callback
 export { 
   FileTokenStorage, 
   MultiServerTokenStorage, 
-  SecureFileTokenStorage, 
   TokenStorageFactory 
 } from './token-storage';

@@ -5,7 +5,6 @@ import { join } from 'path';
 import { 
   FileTokenStorage, 
   MultiServerTokenStorage, 
-  SecureFileTokenStorage, 
   TokenStorageFactory 
 } from './token-storage';
 import type { OAuthTokens } from './oauth-types';
@@ -96,33 +95,6 @@ describe('FileTokenStorage', () => {
     });
   });
 
-  describe('with encryption', () => {
-    it('should encrypt and decrypt tokens', async () => {
-      const storage = new FileTokenStorage('/test/path.json', 'test-key');
-      
-      let encryptedData: string;
-      (fs.writeFile as any).mockImplementation(async (path: string, data: string) => {
-        encryptedData = data;
-        expect(data).not.toContain('test-token'); // Should be encrypted
-      });
-      
-      (fs.readFile as any).mockImplementation(async () => encryptedData);
-      (fs.mkdir as any).mockResolvedValue(undefined);
-
-      await storage.setTokens(mockTokens);
-      const retrieved = await storage.getTokens();
-
-      expect(retrieved).toEqual(mockTokens);
-    });
-
-    it('should throw error when decrypting without key', async () => {
-      const storage = new FileTokenStorage('/test/path.json'); // No key
-      
-      (fs.readFile as any).mockResolvedValue('iv:encrypted-data');
-
-      await expect(storage.getTokens()).rejects.toThrow('Encryption key not provided');
-    });
-  });
 });
 
 describe('MultiServerTokenStorage', () => {
@@ -192,80 +164,6 @@ describe('MultiServerTokenStorage', () => {
   });
 });
 
-describe('SecureFileTokenStorage', () => {
-  let realSetTimeout: typeof setTimeout;
-  let realClearInterval: typeof clearInterval;
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    realSetTimeout = global.setTimeout;
-    realClearInterval = global.clearInterval;
-    
-    // Mock timers
-    global.setTimeout = vi.fn((fn, delay) => {
-      return realSetTimeout(fn, 0); // Execute immediately for tests
-    });
-    global.clearInterval = vi.fn();
-  });
-
-  afterEach(() => {
-    global.setTimeout = realSetTimeout;
-    global.clearInterval = realClearInterval;
-  });
-
-  it('should add timestamp when storing tokens', async () => {
-    const storage = new SecureFileTokenStorage('/test/path.json');
-    
-    (fs.writeFile as any).mockImplementation(async (path: string, data: string) => {
-      const parsed = JSON.parse(data);
-      expect(parsed._stored_at).toBeDefined();
-      expect(typeof parsed._stored_at).toBe('number');
-    });
-    (fs.mkdir as any).mockResolvedValue(undefined);
-
-    await storage.setTokens({
-      access_token: 'test-token',
-      token_type: 'Bearer',
-    });
-  });
-
-  it('should return null for expired tokens', async () => {
-    const storage = new SecureFileTokenStorage('/test/path.json', undefined, { maxAge: 1000 });
-    
-    const expiredTokens = {
-      access_token: 'test-token',
-      token_type: 'Bearer',
-      _stored_at: Date.now() - 2000, // 2 seconds ago, max age is 1 second
-    };
-
-    (fs.readFile as any).mockResolvedValue(JSON.stringify(expiredTokens));
-    (fs.unlink as any).mockResolvedValue(undefined);
-
-    const result = await storage.getTokens();
-    expect(result).toBeNull();
-    expect(fs.unlink).toHaveBeenCalled(); // Should clear expired tokens
-  });
-
-  it('should start cleanup timer by default', () => {
-    new SecureFileTokenStorage('/test/path.json');
-    expect(setTimeout).toHaveBeenCalledWith(expect.any(Function), 6 * 60 * 60 * 1000);
-  });
-
-  it('should not start cleanup timer when disabled', () => {
-    new SecureFileTokenStorage('/test/path.json', undefined, { autoCleanup: false });
-    expect(setTimeout).not.toHaveBeenCalled();
-  });
-
-  it('should destroy cleanup timer', async () => {
-    const storage = new SecureFileTokenStorage('/test/path.json');
-    
-    (fs.unlink as any).mockResolvedValue(undefined);
-    
-    await storage.destroy();
-    expect(clearInterval).toHaveBeenCalled();
-    expect(fs.unlink).toHaveBeenCalled();
-  });
-});
 
 describe('TokenStorageFactory', () => {
   beforeEach(() => {
@@ -282,22 +180,10 @@ describe('TokenStorageFactory', () => {
   });
 
   it('should create default storage', () => {
-    const storage = TokenStorageFactory.createDefault('test-server');
+    const storage = TokenStorageFactory.createDefault('/tmp/test.json', 'test-server');
     expect(storage).toBeInstanceOf(MultiServerTokenStorage);
   });
 
-  it('should create encrypted storage', () => {
-    const storage = TokenStorageFactory.createEncrypted('test-server', 'encryption-key');
-    expect(storage).toBeInstanceOf(MultiServerTokenStorage);
-  });
-
-  it('should create custom file storage', () => {
-    const storage = TokenStorageFactory.createFile('/custom/path.json', 'test-server', {
-      encrypted: true,
-      encryptionKey: 'test-key',
-    });
-    expect(storage).toBeInstanceOf(MultiServerTokenStorage);
-  });
 
   it('should create memory storage', () => {
     const storage = TokenStorageFactory.createMemory();

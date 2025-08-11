@@ -83,24 +83,17 @@ export class OAuthClientManager {
       const options = this.config.tokenStorageOptions;
       
       if (options.filePath) {
-        return TokenStorageFactory.createFile(options.filePath, this.serverId, {
-          encrypted: options.encrypted,
-          encryptionKey: options.encryptionKey,
-          maxAge: options.maxAge,
-          autoCleanup: options.autoCleanup,
-        });
-      }
-      
-      if (options.encrypted) {
-        if (!options.encryptionKey) {
-          throw new Error('Encryption key is required when using encrypted token storage');
-        }
-        return TokenStorageFactory.createEncrypted(this.serverId, options.encryptionKey);
+        return TokenStorageFactory.createDefault(options.filePath, this.serverId);
       }
     }
 
-    // Default to secure file storage
-    return TokenStorageFactory.createDefault(this.serverId);
+    // Default to file storage with default path
+    const os = require('os');
+    const path = require('path');
+    const tokensDir = path.join(os.homedir(), '.mastra', 'tokens');
+    const tokenFile = path.join(tokensDir, 'tokens.json');
+    
+    return TokenStorageFactory.createDefault(tokenFile, this.serverId);
   }
 
   private validateConfig(): void {

@@ -155,24 +155,6 @@ describe('OAuth Integration Tests', () => {
       })).toThrow('Invalid authorization server URL');
     });
 
-    it('should validate encryption key when using encrypted storage', () => {
-      expect(() => new InternalMastraMCPClient({
-        name: 'test-server',
-        server: {
-          url: new URL('https://api.example.com/mcp'),
-          oauth: {
-            clientId: 'test-client',
-            authorizationServer: 'https://auth.example.com',
-            scopes: ['read'],
-            onAuthURL: async () => {},
-            tokenStorageOptions: {
-              encrypted: true,
-              // Missing encryptionKey
-            },
-          },
-        },
-      })).toThrow('Encryption key is required when using encrypted token storage');
-    });
   });
 
   describe('Token Storage Factory Integration', () => {
