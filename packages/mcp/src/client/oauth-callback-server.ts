@@ -180,14 +180,14 @@ class CallbackHandler {
   }
 
   private escapeHtml(text: string): string {
-    const map: Record<string, string> = {
+    const map = {
       '&': '&amp;',
       '<': '&lt;',
       '>': '&gt;',
       '"': '&quot;',
       "'": '&#039;',
     };
-    return text.replace(/[&<>"']/g, (m) => map[m]);
+    return text.replace(/[&<>"']/g, (m) => map[m as keyof typeof map]);
   }
 
   cleanup(): void {

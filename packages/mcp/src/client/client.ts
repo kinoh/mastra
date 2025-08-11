@@ -258,8 +258,10 @@ export class InternalMastraMCPClient extends MastraBase {
 
     this.log('debug', `Attempting to connect to URL: ${url}`);
 
-    // Prepare auth provider - OAuth takes precedence over basic auth
+    // Prepare auth provider and request init
     let finalAuthProvider = authProvider;
+    let finalRequestInit = requestInit;
+    let finalEventSourceInit = eventSourceInit;
     
     if (this.oauthManager) {
       this.log('debug', 'Using OAuth authentication...');
@@ -267,13 +269,19 @@ export class InternalMastraMCPClient extends MastraBase {
         // Initialize OAuth flow if needed
         await this.oauthManager.initializeOAuthFlow();
         
-        // Create OAuth auth provider
-        finalAuthProvider = async () => {
-          const accessToken = await this.oauthManager!.getValidAccessToken();
-          return {
-            Authorization: `Bearer ${accessToken}`,
-          };
+        // Get access token
+        const accessToken = await this.oauthManager.getValidAccessToken();
+        
+        // Set Authorization header in requestInit instead of authProvider
+        finalRequestInit = {
+          ...requestInit,
+          headers: {
+            ...requestInit?.headers,
+            'Authorization': `Bearer ${accessToken}`,
+          },
         };
+        
+        finalEventSourceInit = eventSourceInit;
         
         this.log('debug', 'OAuth authentication configured successfully.');
       } catch (oauthError) {
@@ -290,7 +298,7 @@ export class InternalMastraMCPClient extends MastraBase {
         // Try Streamable HTTP transport first
         this.log('debug', 'Trying Streamable HTTP transport...');
         const streamableTransport = new StreamableHTTPClientTransport(url, {
-          requestInit,
+          requestInit: finalRequestInit,
           reconnectionOptions: this.serverConfig.reconnectionOptions,
           authProvider: finalAuthProvider,
         });
@@ -312,8 +320,8 @@ export class InternalMastraMCPClient extends MastraBase {
       try {
         // Fallback to SSE transport
         const sseTransport = new SSEClientTransport(url, { 
-          requestInit, 
-          eventSourceInit, 
+          requestInit: finalRequestInit, 
+          eventSourceInit: finalEventSourceInit, 
           authProvider: finalAuthProvider 
         });
         await this.client.connect(sseTransport, { timeout: this.serverConfig.timeout ?? this.timeout });

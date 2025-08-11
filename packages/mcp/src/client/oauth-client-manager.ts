@@ -262,7 +262,7 @@ export class OAuthClientManager {
    */
   private async parseErrorResponse(response: Response): Promise<{ error?: string; error_description?: string }> {
     try {
-      return await response.json();
+      return await response.json() as { error?: string; error_description?: string };
     } catch {
       return {
         error: 'unknown_error',
