@@ -2,7 +2,7 @@ export type { LoggingLevel, LogMessage, LogHandler, MastraMCPServerDefinition, E
 export { MastraMCPClient } from './client';
 export * from './configuration';
 export * from './oauth-types';
-export { OAuthClientManager } from './oauth-client-manager';
+export { MastraOAuthClientProvider } from './oauth-adapter';
 export { OAuthCallbackServer, type CallbackServerConfig } from './oauth-callback-server';
 export { 
   FileTokenStorage, 
