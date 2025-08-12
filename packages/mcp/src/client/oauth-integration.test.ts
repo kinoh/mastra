@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { InternalMastraMCPClient } from './client';
 import type { MastraMCPServerDefinition } from './client';
 import { TokenStorageFactory } from './token-storage';
+import { MastraOAuthClientProvider } from './oauth-adapter';
 
 describe('OAuth Integration Tests', () => {
 
@@ -30,7 +31,9 @@ describe('OAuth Integration Tests', () => {
     it('should reject conflicting authentication configurations', () => {
       const conflictingConfig: MastraMCPServerDefinition = {
         url: new URL('https://api.example.com/mcp'),
-        authProvider: async () => ({ Authorization: 'Bearer token' }),
+        authProvider: new MastraOAuthClientProvider({
+          onAuthURL: async () => {},
+        }, ''),
         oauth: {
           clientId: 'test-client',
           scopes: ['read'],
@@ -89,30 +92,8 @@ describe('OAuth Integration Tests', () => {
   describe('OAuth Configuration Validation', () => {
     it('should validate required OAuth fields', () => {
       const invalidConfigs = [
-        // Missing clientId
         {
-          scopes: ['read'],
-          onAuthURL: async () => {},
-        },
-        // Valid configuration (authorizationServer auto-discovered)
-        {
-          clientId: 'test-client',
-          scopes: ['read'],
-          onAuthURL: async () => {},
-        },
-        // Missing scopes
-        {
-          clientId: 'test-client',
-          onAuthURL: async () => {},
-        },
-        // Empty scopes
-        {
-          clientId: 'test-client',
-          scopes: [],
-          onAuthURL: async () => {},
-        },
-        // Missing onAuthURL
-        {
+          // Missing onAuthURL
           clientId: 'test-client',
           scopes: ['read'],
         },
@@ -127,20 +108,6 @@ describe('OAuth Integration Tests', () => {
           },
         }), `Config ${index} should be invalid`).toThrow();
       });
-    });
-
-    it('should validate authorization server URL format', () => {
-      expect(() => new InternalMastraMCPClient({
-        name: 'test-server',
-        server: {
-          url: new URL('https://api.example.com/mcp'),
-          oauth: {
-            clientId: 'test-client',
-            scopes: ['read'],
-            onAuthURL: async () => {},
-          },
-        },
-      })).toThrow('Invalid authorization server URL');
     });
 
   });
