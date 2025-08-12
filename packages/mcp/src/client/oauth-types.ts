@@ -18,16 +18,8 @@ export interface MCPOAuthConfig {
   tokenStorage?: TokenStorage;
   /** Token storage configuration options */
   tokenStorageOptions?: {
-    /** Use encrypted storage (default: false) */
-    encrypted?: boolean;
-    /** Encryption key for encrypted storage */
-    encryptionKey?: string;
     /** Custom file path for token storage */
     filePath?: string;
-    /** Maximum age for stored tokens in milliseconds (default: 30 days) */
-    maxAge?: number;
-    /** Enable automatic cleanup of expired tokens (default: true) */
-    autoCleanup?: boolean;
   };
 }
 

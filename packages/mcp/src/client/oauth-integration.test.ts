@@ -52,9 +52,6 @@ describe('OAuth Integration Tests', () => {
           scopes: ['read', 'write'],
           onAuthURL: async () => {},
           tokenStorageOptions: {
-            encrypted: true,
-            encryptionKey: 'test-encryption-key',
-            maxAge: 24 * 60 * 60 * 1000, // 24 hours
           },
         },
       };
