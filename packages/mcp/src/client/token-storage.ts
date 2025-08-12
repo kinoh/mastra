@@ -97,7 +97,7 @@ export class FileTokenStorage implements TokenStorage {
 }
 
 /**
- * Multi-server token storage that isolates tokens and data per server
+ * Shared token storage across all servers - provides simple proxy to base storage
  */
 export class MultiServerTokenStorage implements TokenStorage {
   private baseStorage: TokenStorage;
@@ -109,109 +109,26 @@ export class MultiServerTokenStorage implements TokenStorage {
   }
 
   async getTokens(): Promise<OAuthTokens | null> {
-    const allData = await this.getAllData();
-    return allData.servers?.[this.serverId]?.tokens || null;
+    return this.baseStorage.getTokens();
   }
 
   async setTokens(tokens: OAuthTokens): Promise<void> {
-    const allData = await this.getAllData();
-    if (!allData.servers) {
-      allData.servers = {};
-    }
-    if (!allData.servers[this.serverId]) {
-      allData.servers[this.serverId] = {};
-    }
-    const serverData = allData.servers[this.serverId];
-    if (serverData) {
-      serverData.tokens = tokens;
-    }
-    await this.setAllData(allData);
+    return this.baseStorage.setTokens(tokens);
   }
 
   async clearTokens(): Promise<void> {
-    const allData = await this.getAllData();
-    const serverData = allData.servers?.[this.serverId];
-    if (serverData) {
-      delete serverData.tokens;
-      // If no data left for this server, remove the server entry
-      if (Object.keys(serverData).length === 0) {
-        delete allData.servers[this.serverId];
-      }
-    }
-    await this.setAllData(allData);
+    return this.baseStorage.clearTokens();
   }
 
   async setItem(key: string, value: string): Promise<void> {
-    const allData = await this.getAllData();
-    if (!allData.servers) {
-      allData.servers = {};
-    }
-    if (!allData.servers[this.serverId]) {
-      allData.servers[this.serverId] = {};
-    }
-    const serverData = allData.servers[this.serverId];
-    if (serverData) {
-      if (!serverData.data) {
-        serverData.data = {};
-      }
-      serverData.data[key] = value;
-    }
-    await this.setAllData(allData);
+    return this.baseStorage.setItem(key, value);
   }
 
   async getItem(key: string): Promise<string | null> {
-    const allData = await this.getAllData();
-    return allData.servers?.[this.serverId]?.data?.[key] || null;
-  }
-
-  private async getAllData(): Promise<MultiServerData> {
-    const stored = await this.baseStorage.getTokens();
-    if (!stored) {
-      return { servers: {} };
-    }
-    
-    // Check if stored data is legacy format (direct tokens object)
-    if (stored.access_token) {
-      // Legacy single-server format, migrate to multi-server
-      return {
-        servers: {
-          [this.serverId]: {
-            tokens: stored
-          }
-        }
-      };
-    }
-    
-    // Check if it's old multi-server format (flat server structure)
-    if (typeof stored === 'object' && !('servers' in stored)) {
-      // Old multi-server format: { serverId: tokens, ... }
-      const servers: Record<string, any> = {};
-      for (const [id, tokens] of Object.entries(stored)) {
-        if (typeof tokens === 'object' && tokens && 'access_token' in tokens) {
-          servers[id] = { tokens };
-        }
-      }
-      return { servers };
-    }
-    
-    // New multi-server format
-    return stored as unknown as MultiServerData;
-  }
-
-  private async setAllData(allData: MultiServerData): Promise<void> {
-    await this.baseStorage.setTokens(allData as unknown as OAuthTokens);
+    return this.baseStorage.getItem(key);
   }
 }
 
-/**
- * Data structure for multi-server storage
- */
-interface MultiServerData {
-  servers: Record<string, {
-    tokens?: OAuthTokens;
-    data?: Record<string, string>;
-  }>;
-}
 
 
 /**
@@ -219,7 +136,7 @@ interface MultiServerData {
  */
 export class TokenStorageFactory {
   /**
-   * Create default token storage for a server
+   * Create default token storage that shares tokens across all servers
    */
   static createDefault(filePath: string, serverId: string): TokenStorage {
     const baseStorage = new FileTokenStorage(filePath);

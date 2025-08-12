@@ -105,6 +105,8 @@ describe('MultiServerTokenStorage', () => {
       getTokens: vi.fn(),
       setTokens: vi.fn(),
       clearTokens: vi.fn(),
+      setItem: vi.fn(),
+      getItem: vi.fn(),
     };
   });
 
@@ -114,53 +116,53 @@ describe('MultiServerTokenStorage', () => {
     expires_in: 3600,
   };
 
-  it('should isolate tokens per server', async () => {
+  it('should proxy all token operations to base storage', async () => {
+    const storage = new MultiServerTokenStorage(baseStorage, 'server1');
+
+    baseStorage.getTokens.mockResolvedValue(mockTokens);
+    
+    // Test getTokens
+    const result = await storage.getTokens();
+    expect(result).toEqual(mockTokens);
+    expect(baseStorage.getTokens).toHaveBeenCalled();
+
+    // Test setTokens
+    await storage.setTokens(mockTokens);
+    expect(baseStorage.setTokens).toHaveBeenCalledWith(mockTokens);
+
+    // Test clearTokens
+    await storage.clearTokens();
+    expect(baseStorage.clearTokens).toHaveBeenCalled();
+  });
+
+  it('should proxy setItem/getItem operations to base storage', async () => {
+    const storage = new MultiServerTokenStorage(baseStorage, 'server1');
+
+    baseStorage.getItem.mockResolvedValue('test-value');
+    
+    // Test getItem
+    const result = await storage.getItem('test-key');
+    expect(result).toBe('test-value');
+    expect(baseStorage.getItem).toHaveBeenCalledWith('test-key');
+
+    // Test setItem
+    await storage.setItem('test-key', 'test-value');
+    expect(baseStorage.setItem).toHaveBeenCalledWith('test-key', 'test-value');
+  });
+
+  it('should share tokens across all server instances', async () => {
     const storage1 = new MultiServerTokenStorage(baseStorage, 'server1');
     const storage2 = new MultiServerTokenStorage(baseStorage, 'server2');
 
-    baseStorage.getTokens.mockResolvedValue({});
-
-    await storage1.setTokens(mockTokens);
-    
-    expect(baseStorage.setTokens).toHaveBeenCalledWith({
-      server1: mockTokens,
-    });
-
-    // Set tokens for server2
-    const tokens2 = { ...mockTokens, access_token: 'token2' };
-    baseStorage.getTokens.mockResolvedValue({ server1: mockTokens });
-    
-    await storage2.setTokens(tokens2);
-    
-    expect(baseStorage.setTokens).toHaveBeenCalledWith({
-      server1: mockTokens,
-      server2: tokens2,
-    });
-  });
-
-  it('should handle legacy single-server format migration', async () => {
-    const storage = new MultiServerTokenStorage(baseStorage, 'server1');
-
-    // Return legacy format (tokens directly, not wrapped in server object)
     baseStorage.getTokens.mockResolvedValue(mockTokens);
 
-    const result = await storage.getTokens();
-    expect(result).toEqual(mockTokens);
-  });
-
-  it('should clear tokens for specific server only', async () => {
-    const storage = new MultiServerTokenStorage(baseStorage, 'server1');
-
-    baseStorage.getTokens.mockResolvedValue({
-      server1: mockTokens,
-      server2: { access_token: 'token2', token_type: 'Bearer' },
-    });
-
-    await storage.clearTokens();
-
-    expect(baseStorage.setTokens).toHaveBeenCalledWith({
-      server2: { access_token: 'token2', token_type: 'Bearer' },
-    });
+    // Both storages should return the same tokens
+    const result1 = await storage1.getTokens();
+    const result2 = await storage2.getTokens();
+    
+    expect(result1).toEqual(mockTokens);
+    expect(result2).toEqual(mockTokens);
+    expect(baseStorage.getTokens).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -179,7 +181,7 @@ describe('TokenStorageFactory', () => {
     }));
   });
 
-  it('should create default storage', () => {
+  it('should create default storage as MultiServerTokenStorage', () => {
     const storage = TokenStorageFactory.createDefault('/tmp/test.json', 'test-server');
     expect(storage).toBeInstanceOf(MultiServerTokenStorage);
   });
