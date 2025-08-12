@@ -41,7 +41,10 @@ import { ElicitationClientActions } from './elicitationActions';
 import { PromptClientActions } from './promptActions';
 import { ResourceClientActions } from './resourceActions';
 import type { MCPOAuthConfig } from './oauth-types';
-import { OAuthClientManager } from './oauth-client-manager';
+import { MastraOAuthClientProvider } from './oauth-adapter';
+import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
+import { OAuthCallbackServer } from './oauth-callback-server';
+import { parse } from 'path';
 
 // Re-export MCP SDK LoggingLevel for convenience
 export type { LoggingLevel } from '@modelcontextprotocol/sdk/types.js';
@@ -142,7 +145,7 @@ export class InternalMastraMCPClient extends MastraBase {
   private serverConfig: MastraMCPServerDefinition;
   private transport?: Transport;
   private currentOperationContext: RuntimeContext | null = null;
-  private oauthManager?: OAuthClientManager;
+  private oauthProvider?: MastraOAuthClientProvider;
   public readonly resources: ResourceClientActions;
   public readonly prompts: PromptClientActions;
   public readonly elicitation: ElicitationClientActions;
@@ -175,14 +178,14 @@ export class InternalMastraMCPClient extends MastraBase {
     // Set up log message capturing
     this.setupLogging();
 
-    // Initialize OAuth manager if OAuth config is provided
+    // Initialize OAuth provider if OAuth config is provided
     if ('oauth' in server && server.oauth) {
       // Validate that OAuth is not used with other auth methods
       if ('authProvider' in server && server.authProvider) {
         throw new Error('Cannot use both OAuth and authProvider configurations. Choose one authentication method.');
       }
       
-      this.oauthManager = new OAuthClientManager(server.oauth, name);
+      this.oauthProvider = new MastraOAuthClientProvider(server.oauth, name);
     }
 
     this.resources = new ResourceClientActions({ client: this, logger: this.logger });
@@ -253,55 +256,42 @@ export class InternalMastraMCPClient extends MastraBase {
     }
   }
 
+  /**
+   * Start a callback server to listen for OAuth redirects
+   */
+  private async waitForOAuthCallback(redirect_url: URL): Promise<string> {
+    return new Promise<string>(async (resolve) => {
+      const callbackServer = new OAuthCallbackServer({
+        host: redirect_url.hostname,
+        port: parseInt(redirect_url.port),
+      });
+      const { url, promise } = await callbackServer.start();
+      console.log(`OAuth callback URL: ${url}`);
+      promise.then(result => {
+        // TODO: Verify state
+        resolve(result.code);
+      });
+    });
+  }
+
   private async connectHttp(url: URL) {
     const { requestInit, eventSourceInit, authProvider } = this.serverConfig;
 
     this.log('debug', `Attempting to connect to URL: ${url}`);
 
-    // Prepare auth provider and request init
-    let finalAuthProvider = authProvider;
-    let finalRequestInit = requestInit;
-    let finalEventSourceInit = eventSourceInit;
-    
-    if (this.oauthManager) {
-      this.log('debug', 'Using OAuth authentication...');
-      try {
-        // Initialize OAuth flow if needed
-        await this.oauthManager.initializeOAuthFlow();
-        
-        // Get access token
-        const accessToken = await this.oauthManager.getValidAccessToken();
-        
-        // Set Authorization header in requestInit instead of authProvider
-        finalRequestInit = {
-          ...requestInit,
-          headers: {
-            ...requestInit?.headers,
-            'Authorization': `Bearer ${accessToken}`,
-          },
-        };
-        
-        finalEventSourceInit = eventSourceInit;
-        
-        this.log('debug', 'OAuth authentication configured successfully.');
-      } catch (oauthError) {
-        this.log('error', `OAuth authentication failed: ${oauthError}`);
-        throw oauthError;
-      }
-    }
-
     // Assume /sse means sse.
     let shouldTrySSE = url.pathname.endsWith(`/sse`);
 
     if (!shouldTrySSE) {
+      // Try Streamable HTTP transport first
+      this.log('debug', 'Trying Streamable HTTP transport...');
+      const streamableTransport = new StreamableHTTPClientTransport(url, {
+        requestInit,
+        reconnectionOptions: this.serverConfig.reconnectionOptions,
+        authProvider: this.oauthProvider,
+      });
       try {
-        // Try Streamable HTTP transport first
-        this.log('debug', 'Trying Streamable HTTP transport...');
-        const streamableTransport = new StreamableHTTPClientTransport(url, {
-          requestInit: finalRequestInit,
-          reconnectionOptions: this.serverConfig.reconnectionOptions,
-          authProvider: finalAuthProvider,
-        });
+        // Here "Error: Unauthorized" happens; existing code does not support OAuth
         await this.client.connect(streamableTransport, {
           timeout:
             // this is hardcoded to 3s because the long default timeout would be extremely slow for sse backwards compat (60s)
@@ -310,8 +300,22 @@ export class InternalMastraMCPClient extends MastraBase {
         this.transport = streamableTransport;
         this.log('debug', 'Successfully connected using Streamable HTTP transport.');
       } catch (error) {
-        this.log('debug', `Streamable HTTP transport failed: ${error}`);
-        shouldTrySSE = true;
+        if (error instanceof UnauthorizedError) {
+          // OAuth required; wait for user authorization
+          let redirect_url = this.oauthProvider!.redirectUrl;
+          if (typeof redirect_url === 'string') {
+            redirect_url = new URL(redirect_url);
+          }
+          const code = await this.waitForOAuthCallback(redirect_url);
+          await streamableTransport.finishAuth(code);
+          console.log(`Finished OAuth authentication with code: ${code}`);
+          // finishAuth() completes the connection, no need to call connect() again
+          this.transport = streamableTransport;
+          this.log('debug', `Successfully connected using Streamable HTTP transport after OAuth authentication.`);
+        } else {
+          this.log('debug', `Streamable HTTP transport failed: ${error}`);
+          shouldTrySSE = true;
+        }
       }
     }
 
@@ -320,9 +324,9 @@ export class InternalMastraMCPClient extends MastraBase {
       try {
         // Fallback to SSE transport
         const sseTransport = new SSEClientTransport(url, { 
-          requestInit: finalRequestInit, 
-          eventSourceInit: finalEventSourceInit, 
-          authProvider: finalAuthProvider 
+          requestInit, 
+          eventSourceInit, 
+          authProvider: this.oauthProvider, 
         });
         await this.client.connect(sseTransport, { timeout: this.serverConfig.timeout ?? this.timeout });
         this.transport = sseTransport;
