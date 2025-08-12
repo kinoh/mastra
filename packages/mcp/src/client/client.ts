@@ -309,8 +309,18 @@ export class InternalMastraMCPClient extends MastraBase {
           const code = await this.waitForOAuthCallback(redirect_url);
           await streamableTransport.finishAuth(code);
           console.log(`Finished OAuth authentication with code: ${code}`);
-          // finishAuth() completes the connection, no need to call connect() again
-          this.transport = streamableTransport;
+          
+          // After finishAuth(), create a new transport instance and retry connection
+          // The previous transport is already started and cannot be reused
+          const newStreamableTransport = new StreamableHTTPClientTransport(url, {
+            requestInit,
+            reconnectionOptions: this.serverConfig.reconnectionOptions,
+            authProvider: this.oauthProvider,
+          });
+          await this.client.connect(newStreamableTransport, {
+            timeout: 3000,
+          });
+          this.transport = newStreamableTransport;
           this.log('debug', `Successfully connected using Streamable HTTP transport after OAuth authentication.`);
         } else {
           this.log('debug', `Streamable HTTP transport failed: ${error}`);
