@@ -1,14 +1,13 @@
 /**
  * OAuth 2.1 authentication types for MCP client
+ * Compatible with @modelcontextprotocol/sdk OAuthClientProvider interface
  */
 
 export interface MCPOAuthConfig {
-  /** OAuth client identifier */
-  clientId: string;
-  /** Authorization server URL */
-  authorizationServer: string;
-  /** Requested OAuth scopes */
-  scopes: string[];
+  /** OAuth client identifier (use dynamic client registration if not provided) */
+  clientId?: string;
+  /** Requested OAuth scopes (defaults to "mcp:tools") */
+  scopes?: string[];
   /** Redirect URI for OAuth callback (defaults to localhost) */
   redirectUri?: string;
   /** Callback to handle auth URL presentation to user */
@@ -32,17 +31,10 @@ export interface MCPOAuthConfig {
   };
 }
 
-export interface OAuthTokens {
-  /** Access token for API requests */
-  access_token: string;
-  /** Optional refresh token */
-  refresh_token?: string;
-  /** Token expiration time in seconds */
-  expires_in?: number;
-  /** Token type (usually 'Bearer') */
-  token_type: string;
-  /** Space-separated list of granted scopes */
-  scope?: string;
+// Use MCP SDK OAuthTokens as base, extend with our fields
+import type { OAuthTokens as MCPOAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
+
+export interface OAuthTokens extends MCPOAuthTokens {
   /** Token issuance timestamp for expiration calculation */
   issued_at?: number;
 }
@@ -54,8 +46,18 @@ export interface TokenStorage {
   setTokens(tokens: OAuthTokens): Promise<void>;
   /** Clear stored tokens */
   clearTokens(): Promise<void>;
+  /** Store arbitrary key-value data (for client information, etc.) */
+  setItem(key: string, value: string): Promise<void>;
+  /** Retrieve arbitrary key-value data */
+  getItem(key: string): Promise<string | null>;
 }
 
+// Internal types - these are no longer needed as they're handled by the SDK
+// Keeping for potential future use or backwards compatibility
+
+/**
+ * @deprecated - PKCE handling is now managed by MCP SDK
+ */
 export interface PKCEChallenge {
   /** Code verifier for PKCE */
   codeVerifier: string;
@@ -65,47 +67,9 @@ export interface PKCEChallenge {
   codeChallengeMethod: 'S256';
 }
 
-export interface AuthorizationParams {
-  /** Response type (always 'code') */
-  response_type: 'code';
-  /** Client identifier */
-  client_id: string;
-  /** Redirect URI */
-  redirect_uri: string;
-  /** Space-separated scopes */
-  scope: string;
-  /** State parameter for CSRF protection */
-  state: string;
-  /** Code challenge for PKCE */
-  code_challenge: string;
-  /** Code challenge method for PKCE */
-  code_challenge_method: 'S256';
-}
-
-export interface TokenExchangeParams {
-  /** Grant type (always 'authorization_code') */
-  grant_type: 'authorization_code';
-  /** Authorization code from callback */
-  code: string;
-  /** Redirect URI used in authorization request */
-  redirect_uri: string;
-  /** Client identifier */
-  client_id: string;
-  /** Code verifier for PKCE */
-  code_verifier: string;
-}
-
-export interface RefreshTokenParams {
-  /** Grant type (always 'refresh_token') */
-  grant_type: 'refresh_token';
-  /** Refresh token */
-  refresh_token: string;
-  /** Client identifier */
-  client_id: string;
-}
-
 /**
  * OAuth-specific error types
+ * @deprecated - Use MCP SDK error types instead
  */
 export class OAuthError extends Error {
   constructor(

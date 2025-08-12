@@ -11,7 +11,6 @@ describe('OAuth Integration Tests', () => {
         url: new URL('https://api.example.com/mcp'),
         oauth: {
           clientId: 'test-client',
-          authorizationServer: 'https://auth.example.com',
           scopes: ['read', 'write'],
           onAuthURL: async (url, state) => {
             console.log(`Please visit: ${url}`);
@@ -34,7 +33,6 @@ describe('OAuth Integration Tests', () => {
         authProvider: async () => ({ Authorization: 'Bearer token' }),
         oauth: {
           clientId: 'test-client',
-          authorizationServer: 'https://auth.example.com',
           scopes: ['read'],
           onAuthURL: async () => {},
         },
@@ -51,7 +49,6 @@ describe('OAuth Integration Tests', () => {
         url: new URL('https://api.example.com/mcp'),
         oauth: {
           clientId: 'test-client',
-          authorizationServer: 'https://auth.example.com',
           scopes: ['read', 'write'],
           onAuthURL: async () => {},
           tokenStorageOptions: {
@@ -77,7 +74,6 @@ describe('OAuth Integration Tests', () => {
         url: new URL('https://api.example.com/mcp'),
         oauth: {
           clientId: 'test-client',
-          authorizationServer: 'https://auth.example.com',
           scopes: ['read', 'write'],
           onAuthURL: async () => {},
           tokenStorage: customStorage,
@@ -98,11 +94,10 @@ describe('OAuth Integration Tests', () => {
       const invalidConfigs = [
         // Missing clientId
         {
-          authorizationServer: 'https://auth.example.com',
           scopes: ['read'],
           onAuthURL: async () => {},
         },
-        // Missing authorizationServer
+        // Valid configuration (authorizationServer auto-discovered)
         {
           clientId: 'test-client',
           scopes: ['read'],
@@ -111,20 +106,17 @@ describe('OAuth Integration Tests', () => {
         // Missing scopes
         {
           clientId: 'test-client',
-          authorizationServer: 'https://auth.example.com',
           onAuthURL: async () => {},
         },
         // Empty scopes
         {
           clientId: 'test-client',
-          authorizationServer: 'https://auth.example.com',
           scopes: [],
           onAuthURL: async () => {},
         },
         // Missing onAuthURL
         {
           clientId: 'test-client',
-          authorizationServer: 'https://auth.example.com',
           scopes: ['read'],
         },
       ];
@@ -147,7 +139,6 @@ describe('OAuth Integration Tests', () => {
           url: new URL('https://api.example.com/mcp'),
           oauth: {
             clientId: 'test-client',
-            authorizationServer: 'invalid-url',
             scopes: ['read'],
             onAuthURL: async () => {},
           },
@@ -199,8 +190,7 @@ describe('OAuth Integration Tests', () => {
               url: new URL('https://api.example.com/mcp'),
               oauth: {
                 clientId: 'test-client',
-                authorizationServer: 'https://auth.example.com',
-                scopes: ['read'],
+                      scopes: ['read'],
                 onAuthURL: async () => {},
                 tokenStorageOptions: options,
               },
@@ -220,7 +210,6 @@ describe('OAuth Integration Tests', () => {
         url: new URL('https://api.example.com/mcp'),
         oauth: {
           clientId: 'test-client',
-          authorizationServer: 'https://auth.example.com',
           scopes: ['read', 'write'],
           onAuthURL: onAuthURLMock,
           onTokenReceived: onTokenReceivedMock,
