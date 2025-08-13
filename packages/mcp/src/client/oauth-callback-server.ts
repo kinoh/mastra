@@ -108,6 +108,7 @@ class CallbackHandler {
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="utf-8">
     <title>OAuth Authorization Complete</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
@@ -136,7 +137,7 @@ class CallbackHandler {
 </html>`;
 
     res.writeHead(200, {
-      'Content-Type': 'text/html',
+      'Content-Type': 'text/html; charset=utf-8',
       'Content-Length': Buffer.byteLength(html),
     });
     res.end(html, () => {
@@ -150,6 +151,7 @@ class CallbackHandler {
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="utf-8">
     <title>OAuth Authorization Error</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
@@ -170,7 +172,7 @@ class CallbackHandler {
 </html>`;
 
     res.writeHead(statusCode, {
-      'Content-Type': 'text/html',
+      'Content-Type': 'text/html; charset=utf-8',
       'Content-Length': Buffer.byteLength(html),
     });
     res.end(html, () => {
