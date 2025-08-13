@@ -13,26 +13,11 @@ export class FileTokenStorage implements TokenStorage {
   }
 
   async getTokens(): Promise<OAuthTokens | null> {
-    try {
-      const data = await this.readStorageFile();
-      
-      // Check if it's legacy format (direct tokens object)
-      if (data.access_token) {
-        return data as OAuthTokens;
-      }
-      
-      // New format - should not happen for FileTokenStorage directly
-      return data as OAuthTokens;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        return null; // File doesn't exist
-      }
-      throw new Error(`Failed to read tokens: ${error}`);
-    }
+    return await this.getItem('__tokens') as OAuthTokens
   }
 
   async setTokens(tokens: OAuthTokens): Promise<void> {
-    await this.writeStorageFile(tokens);
+    await this.setItem('__tokens', tokens);
   }
 
   async clearTokens(): Promise<void> {
@@ -45,30 +30,30 @@ export class FileTokenStorage implements TokenStorage {
     }
   }
 
-  async setItem(key: string, value: string): Promise<void> {
+  async setItem(key: string, value: any): Promise<void> {
     // For FileTokenStorage, we store generic data alongside tokens
     // This implementation stores both tokens and data in the same file structure
     try {
       const currentData = await this.readStorageFile();
       const updatedData = {
         ...currentData,
-        [`_data_${key}`]: value // Prefix to avoid conflicts with token fields
+        [key]: value,
       };
       await this.writeStorageFile(updatedData);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         // File doesn't exist, create with just this data item
-        await this.writeStorageFile({ [`_data_${key}`]: value });
+        await this.writeStorageFile({ [key]: value });
       } else {
         throw new Error(`Failed to set item ${key}: ${error}`);
       }
     }
   }
 
-  async getItem(key: string): Promise<string | null> {
+  async getItem(key: string): Promise<any> {
     try {
       const data = await this.readStorageFile();
-      return data[`_data_${key}`] || null;
+      return data[key] || null;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         return null; // File doesn't exist
@@ -109,23 +94,32 @@ export class MultiServerTokenStorage implements TokenStorage {
   }
 
   async getTokens(): Promise<OAuthTokens | null> {
-    return this.baseStorage.getTokens();
+    const tokensJson = await this.baseStorage.getItem(`tokens__${this.serverId}`);
+    if (!tokensJson) {
+      return null;
+    }
+    try {
+      return JSON.parse(tokensJson);
+    } catch (error) {
+      throw new Error(`Failed to parse tokens for server ${this.serverId}: ${error}`);
+    }
   }
 
   async setTokens(tokens: OAuthTokens): Promise<void> {
-    return this.baseStorage.setTokens(tokens);
+    const tokensJson = JSON.stringify(tokens);
+    await this.baseStorage.setItem(`tokens__${this.serverId}`, tokensJson);
   }
 
   async clearTokens(): Promise<void> {
-    return this.baseStorage.clearTokens();
+    await this.baseStorage.setItem(`tokens__${this.serverId}`, '');
   }
 
   async setItem(key: string, value: string): Promise<void> {
-    return this.baseStorage.setItem(key, value);
+    return this.baseStorage.setItem(`${this.serverId}__${key}`, value);
   }
 
   async getItem(key: string): Promise<string | null> {
-    return this.baseStorage.getItem(key);
+    return this.baseStorage.getItem(`${this.serverId}__${key}`);
   }
 }
 

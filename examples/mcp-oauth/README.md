@@ -67,7 +67,7 @@ github: {
 
 ```typescript
 notion: {
-  url: new URL('YOUR_NOTION_MCP_SERVER_URL'),
+  url: new URL('https://mcp.notion.com/mcp'),
   oauth: {
     // No clientId needed - uses Dynamic Client Registration
     onAuthURL: async (authUrl, state) => { /* ... */ },
