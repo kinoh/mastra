@@ -208,21 +208,10 @@ var FileTokenStorage = class {
     this.filePath = filePath;
   }
   async getTokens() {
-    try {
-      const data = await this.readStorageFile();
-      if (data.access_token) {
-        return data;
-      }
-      return data;
-    } catch (error) {
-      if (error.code === "ENOENT") {
-        return null;
-      }
-      throw new Error(`Failed to read tokens: ${error}`);
-    }
+    return await this.getItem("__tokens");
   }
   async setTokens(tokens) {
-    await this.writeStorageFile(tokens);
+    await this.setItem("__tokens", tokens);
   }
   async clearTokens() {
     try {
@@ -238,13 +227,12 @@ var FileTokenStorage = class {
       const currentData = await this.readStorageFile();
       const updatedData = {
         ...currentData,
-        [`_data_${key}`]: value
-        // Prefix to avoid conflicts with token fields
+        [key]: value
       };
       await this.writeStorageFile(updatedData);
     } catch (error) {
       if (error.code === "ENOENT") {
-        await this.writeStorageFile({ [`_data_${key}`]: value });
+        await this.writeStorageFile({ [key]: value });
       } else {
         throw new Error(`Failed to set item ${key}: ${error}`);
       }
@@ -253,7 +241,7 @@ var FileTokenStorage = class {
   async getItem(key) {
     try {
       const data = await this.readStorageFile();
-      return data[`_data_${key}`] || null;
+      return data[key] || null;
     } catch (error) {
       if (error.code === "ENOENT") {
         return null;
@@ -283,19 +271,28 @@ var MultiServerTokenStorage = class {
     this.serverId = serverId;
   }
   async getTokens() {
-    return this.baseStorage.getTokens();
+    const tokensJson = await this.baseStorage.getItem(`tokens__${this.serverId}`);
+    if (!tokensJson) {
+      return null;
+    }
+    try {
+      return JSON.parse(tokensJson);
+    } catch (error) {
+      throw new Error(`Failed to parse tokens for server ${this.serverId}: ${error}`);
+    }
   }
   async setTokens(tokens) {
-    return this.baseStorage.setTokens(tokens);
+    const tokensJson = JSON.stringify(tokens);
+    await this.baseStorage.setItem(`tokens__${this.serverId}`, tokensJson);
   }
   async clearTokens() {
-    return this.baseStorage.clearTokens();
+    await this.baseStorage.setItem(`tokens__${this.serverId}`, "");
   }
   async setItem(key, value) {
-    return this.baseStorage.setItem(key, value);
+    return this.baseStorage.setItem(`${this.serverId}__${key}`, value);
   }
   async getItem(key) {
-    return this.baseStorage.getItem(key);
+    return this.baseStorage.getItem(`${this.serverId}__${key}`);
   }
 };
 var TokenStorageFactory = class {
@@ -444,6 +441,7 @@ var CallbackHandler = class {
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="utf-8">
     <title>OAuth Authorization Complete</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
@@ -471,7 +469,7 @@ var CallbackHandler = class {
 </body>
 </html>`;
     res.writeHead(200, {
-      "Content-Type": "text/html",
+      "Content-Type": "text/html; charset=utf-8",
       "Content-Length": Buffer.byteLength(html)
     });
     res.end(html, () => {
@@ -484,6 +482,7 @@ var CallbackHandler = class {
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="utf-8">
     <title>OAuth Authorization Error</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
@@ -503,7 +502,7 @@ var CallbackHandler = class {
 </body>
 </html>`;
     res.writeHead(statusCode, {
-      "Content-Type": "text/html",
+      "Content-Type": "text/html; charset=utf-8",
       "Content-Length": Buffer.byteLength(html)
     });
     res.end(html, () => {

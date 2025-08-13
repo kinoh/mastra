@@ -8,8 +8,8 @@ export declare class FileTokenStorage implements TokenStorage {
     getTokens(): Promise<OAuthTokens | null>;
     setTokens(tokens: OAuthTokens): Promise<void>;
     clearTokens(): Promise<void>;
-    setItem(key: string, value: string): Promise<void>;
-    getItem(key: string): Promise<string | null>;
+    setItem(key: string, value: any): Promise<void>;
+    getItem(key: string): Promise<any>;
     private readStorageFile;
     private writeStorageFile;
 }
