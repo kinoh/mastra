@@ -109,23 +109,32 @@ export class MultiServerTokenStorage implements TokenStorage {
   }
 
   async getTokens(): Promise<OAuthTokens | null> {
-    return this.baseStorage.getTokens();
+    const tokensJson = await this.baseStorage.getItem(`tokens__${this.serverId}`);
+    if (!tokensJson) {
+      return null;
+    }
+    try {
+      return JSON.parse(tokensJson);
+    } catch (error) {
+      throw new Error(`Failed to parse tokens for server ${this.serverId}: ${error}`);
+    }
   }
 
   async setTokens(tokens: OAuthTokens): Promise<void> {
-    return this.baseStorage.setTokens(tokens);
+    const tokensJson = JSON.stringify(tokens);
+    await this.baseStorage.setItem(`tokens__${this.serverId}`, tokensJson);
   }
 
   async clearTokens(): Promise<void> {
-    return this.baseStorage.clearTokens();
+    await this.baseStorage.setItem(`tokens__${this.serverId}`, '');
   }
 
   async setItem(key: string, value: string): Promise<void> {
-    return this.baseStorage.setItem(key, value);
+    return this.baseStorage.setItem(`${this.serverId}__${key}`, value);
   }
 
   async getItem(key: string): Promise<string | null> {
-    return this.baseStorage.getItem(key);
+    return this.baseStorage.getItem(`${this.serverId}__${key}`);
   }
 }
 
