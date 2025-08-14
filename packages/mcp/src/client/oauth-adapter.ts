@@ -13,13 +13,15 @@ export class MastraOAuthClientProvider implements OAuthClientProvider {
   private config: MCPOAuthConfig;
   private storage: TokenStorage;
   private serverId: string;
+  private mcpClientId: string;
   private _codeVerifier: string | null = null;
   private _state: string | null = null;
   private callbackServer?: OAuthCallbackServer;
 
-  constructor(config: MCPOAuthConfig, serverId: string) {
+  constructor(config: MCPOAuthConfig, serverId: string, mcpClientId: string) {
     this.config = config;
     this.serverId = serverId;
+    this.mcpClientId = mcpClientId;
     
     // Validate configuration
     this.validateConfig();
@@ -44,7 +46,7 @@ export class MastraOAuthClientProvider implements OAuthClientProvider {
       const options = this.config.tokenStorageOptions;
       
       if (options.filePath) {
-        return TokenStorageFactory.createDefault(options.filePath, this.serverId);
+        return TokenStorageFactory.createDefault(options.filePath, this.serverId, this.mcpClientId);
       }
     }
 
@@ -54,7 +56,7 @@ export class MastraOAuthClientProvider implements OAuthClientProvider {
     const tokensDir = path.join(os.homedir(), '.mastra', 'tokens');
     const tokenFile = path.join(tokensDir, 'tokens.json');
     
-    return TokenStorageFactory.createDefault(tokenFile, this.serverId);
+    return TokenStorageFactory.createDefault(tokenFile, this.serverId, this.mcpClientId);
   }
 
   get redirectUrl(): string | URL {

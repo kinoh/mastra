@@ -5,7 +5,6 @@ export * from './oauth-types';
 export { MastraOAuthClientProvider } from './oauth-adapter';
 export { OAuthCallbackServer, type CallbackServerConfig } from './oauth-callback-server';
 export { 
-  FileTokenStorage, 
-  MultiServerTokenStorage, 
+  MCPClientTokenStorage, 
   TokenStorageFactory 
 } from './token-storage';
