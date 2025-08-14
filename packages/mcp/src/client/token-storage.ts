@@ -3,71 +3,44 @@ import { dirname } from 'path';
 import type { TokenStorage, OAuthTokens } from './oauth-types';
 
 /**
- * Simple file-based token storage with generic key-value support
+ * Hierarchical storage structure for MCP client data
  */
-export class FileTokenStorage implements TokenStorage {
+interface ClientStorageData {
+  [clientId: string]: {
+    tokens: {
+      [serverId: string]: OAuthTokens;
+    };
+    data: {
+      [serverId: string]: {
+        [key: string]: string;
+      };
+    };
+  };
+}
+
+/**
+ * Simple file-based storage for hierarchical MCP client data
+ */
+export class FileTokenStorage {
   private filePath: string;
 
   constructor(filePath: string) {
     this.filePath = filePath;
   }
 
-  async getTokens(): Promise<OAuthTokens | null> {
-    return await this.getItem('__tokens') as OAuthTokens
-  }
-
-  async setTokens(tokens: OAuthTokens): Promise<void> {
-    await this.setItem('__tokens', tokens);
-  }
-
-  async clearTokens(): Promise<void> {
+  async readData(): Promise<ClientStorageData> {
     try {
-      await fs.unlink(this.filePath);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        throw new Error(`Failed to clear tokens: ${error}`);
-      }
-    }
-  }
-
-  async setItem(key: string, value: any): Promise<void> {
-    // For FileTokenStorage, we store generic data alongside tokens
-    // This implementation stores both tokens and data in the same file structure
-    try {
-      const currentData = await this.readStorageFile();
-      const updatedData = {
-        ...currentData,
-        [key]: value,
-      };
-      await this.writeStorageFile(updatedData);
+      const data = await fs.readFile(this.filePath, 'utf8');
+      return JSON.parse(data);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        // File doesn't exist, create with just this data item
-        await this.writeStorageFile({ [key]: value });
-      } else {
-        throw new Error(`Failed to set item ${key}: ${error}`);
+        return {}; // File doesn't exist, return empty structure
       }
+      throw new Error(`Failed to read storage file: ${error}`);
     }
   }
 
-  async getItem(key: string): Promise<any> {
-    try {
-      const data = await this.readStorageFile();
-      return data[key] || null;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        return null; // File doesn't exist
-      }
-      throw new Error(`Failed to get item ${key}: ${error}`);
-    }
-  }
-
-  private async readStorageFile(): Promise<any> {
-    const data = await fs.readFile(this.filePath, 'utf8');
-    return JSON.parse(data);
-  }
-
-  private async writeStorageFile(data: any): Promise<void> {
+  async writeData(data: ClientStorageData): Promise<void> {
     try {
       // Ensure directory exists
       await fs.mkdir(dirname(this.filePath), { recursive: true });
@@ -79,94 +52,125 @@ export class FileTokenStorage implements TokenStorage {
     }
   }
 
+  async clear(): Promise<void> {
+    try {
+      await fs.unlink(this.filePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw new Error(`Failed to clear storage file: ${error}`);
+      }
+    }
+  }
 }
 
 /**
- * Shared token storage across all servers - provides simple proxy to base storage
+ * MCP Client token storage - manages hierarchical storage for MCP clients
+ * Provides isolation between different MCPClient instances and their servers
  */
-export class MultiServerTokenStorage implements TokenStorage {
-  private baseStorage: TokenStorage;
+export class MCPClientTokenStorage implements TokenStorage {
+  private fileStorage: FileTokenStorage;
   private serverId: string;
   private mcpClientId: string;
 
-  constructor(baseStorage: TokenStorage, serverId: string, mcpClientId: string) {
-    this.baseStorage = baseStorage;
+  constructor(fileStorage: FileTokenStorage, serverId: string, mcpClientId: string) {
+    this.fileStorage = fileStorage;
     this.serverId = serverId;
     this.mcpClientId = mcpClientId;
   }
 
   async getTokens(): Promise<OAuthTokens | null> {
-    const tokensJson = await this.baseStorage.getItem(`${this.mcpClientId}__tokens__${this.serverId}`);
-    if (!tokensJson) {
-      return null;
-    }
-    try {
-      return JSON.parse(tokensJson);
-    } catch (error) {
-      throw new Error(`Failed to parse tokens for server ${this.serverId}: ${error}`);
-    }
+    const data = await this.fileStorage.readData();
+    return data[this.mcpClientId]?.tokens?.[this.serverId] || null;
   }
 
   async setTokens(tokens: OAuthTokens): Promise<void> {
-    const tokensJson = JSON.stringify(tokens);
-    await this.baseStorage.setItem(`${this.mcpClientId}__tokens__${this.serverId}`, tokensJson);
+    const data = await this.fileStorage.readData();
+    
+    (data[this.mcpClientId] ??= { tokens: {}, data: {} })
+      .tokens[this.serverId] = tokens;
+
+    await this.fileStorage.writeData(data);
   }
 
   async clearTokens(): Promise<void> {
-    await this.baseStorage.setItem(`${this.mcpClientId}__tokens__${this.serverId}`, '');
+    const data = await this.fileStorage.readData();
+    const clientData = data[this.mcpClientId];
+
+    if (clientData?.tokens?.[this.serverId]) {
+      delete clientData.tokens[this.serverId];
+      await this.fileStorage.writeData(data);
+    }
   }
 
   async setItem(key: string, value: string): Promise<void> {
-    return this.baseStorage.setItem(`${this.mcpClientId}__${this.serverId}__${key}`, value);
+    const data = await this.fileStorage.readData();
+    
+    (
+      (data[this.mcpClientId] ??= { tokens: {}, data: {} })
+      .data[this.serverId] ??= {}
+    )[key] = value;
+
+    await this.fileStorage.writeData(data);
   }
 
   async getItem(key: string): Promise<string | null> {
-    return this.baseStorage.getItem(`${this.mcpClientId}__${this.serverId}__${key}`);
+    const data = await this.fileStorage.readData();
+    return data[this.mcpClientId]?.data?.[this.serverId]?.[key] || null;
   }
 }
 
-
-
 /**
- * Factory for creating appropriate token storage instances
+ * Factory for creating MCP Client token storage instances
  */
 export class TokenStorageFactory {
   /**
-   * Create default token storage that shares tokens across all servers
+   * Create default hierarchical token storage for MCP clients
    */
   static createDefault(filePath: string, serverId: string, mcpClientId: string): TokenStorage {
-    const baseStorage = new FileTokenStorage(filePath);
-    return new MultiServerTokenStorage(baseStorage, serverId, mcpClientId);
+    const fileStorage = new FileTokenStorage(filePath);
+    return new MCPClientTokenStorage(fileStorage, serverId, mcpClientId);
   }
-
-
 
   /**
    * Create memory-only storage (for testing)
    */
   static createMemory(): TokenStorage {
+    // For memory storage, we simulate single client behavior
+    const clientId = 'memory-client';
+    const serverId = 'memory-server';
+
     return new (class implements TokenStorage {
-      private tokens: OAuthTokens | null = null;
-      private data: Record<string, string> = {};
+      private storageData: ClientStorageData = {};
 
       async getTokens(): Promise<OAuthTokens | null> {
-        return this.tokens;
+        return this.storageData[clientId]?.tokens?.[serverId] || null;
       }
 
       async setTokens(tokens: OAuthTokens): Promise<void> {
-        this.tokens = tokens;
+        if (!this.storageData[clientId]) {
+          this.storageData[clientId] = { tokens: {}, data: {} };
+        }
+        this.storageData[clientId].tokens[serverId] = tokens;
       }
 
       async clearTokens(): Promise<void> {
-        this.tokens = null;
+        if (this.storageData[clientId]?.tokens?.[serverId]) {
+          delete this.storageData[clientId].tokens[serverId];
+        }
       }
 
       async setItem(key: string, value: string): Promise<void> {
-        this.data[key] = value;
+        if (!this.storageData[clientId]) {
+          this.storageData[clientId] = { tokens: {}, data: {} };
+        }
+        if (!this.storageData[clientId].data[serverId]) {
+          this.storageData[clientId].data[serverId] = {};
+        }
+        this.storageData[clientId].data[serverId][key] = value;
       }
 
       async getItem(key: string): Promise<string | null> {
-        return this.data[key] || null;
+        return this.storageData[clientId]?.data?.[serverId]?.[key] || null;
       }
     })();
   }
