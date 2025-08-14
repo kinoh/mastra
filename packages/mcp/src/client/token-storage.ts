@@ -87,14 +87,16 @@ export class FileTokenStorage implements TokenStorage {
 export class MultiServerTokenStorage implements TokenStorage {
   private baseStorage: TokenStorage;
   private serverId: string;
+  private mcpClientId: string;
 
-  constructor(baseStorage: TokenStorage, serverId: string) {
+  constructor(baseStorage: TokenStorage, serverId: string, mcpClientId: string) {
     this.baseStorage = baseStorage;
     this.serverId = serverId;
+    this.mcpClientId = mcpClientId;
   }
 
   async getTokens(): Promise<OAuthTokens | null> {
-    const tokensJson = await this.baseStorage.getItem(`tokens__${this.serverId}`);
+    const tokensJson = await this.baseStorage.getItem(`${this.mcpClientId}__tokens__${this.serverId}`);
     if (!tokensJson) {
       return null;
     }
@@ -107,19 +109,19 @@ export class MultiServerTokenStorage implements TokenStorage {
 
   async setTokens(tokens: OAuthTokens): Promise<void> {
     const tokensJson = JSON.stringify(tokens);
-    await this.baseStorage.setItem(`tokens__${this.serverId}`, tokensJson);
+    await this.baseStorage.setItem(`${this.mcpClientId}__tokens__${this.serverId}`, tokensJson);
   }
 
   async clearTokens(): Promise<void> {
-    await this.baseStorage.setItem(`tokens__${this.serverId}`, '');
+    await this.baseStorage.setItem(`${this.mcpClientId}__tokens__${this.serverId}`, '');
   }
 
   async setItem(key: string, value: string): Promise<void> {
-    return this.baseStorage.setItem(`${this.serverId}__${key}`, value);
+    return this.baseStorage.setItem(`${this.mcpClientId}__${this.serverId}__${key}`, value);
   }
 
   async getItem(key: string): Promise<string | null> {
-    return this.baseStorage.getItem(`${this.serverId}__${key}`);
+    return this.baseStorage.getItem(`${this.mcpClientId}__${this.serverId}__${key}`);
   }
 }
 
@@ -132,9 +134,9 @@ export class TokenStorageFactory {
   /**
    * Create default token storage that shares tokens across all servers
    */
-  static createDefault(filePath: string, serverId: string): TokenStorage {
+  static createDefault(filePath: string, serverId: string, mcpClientId: string): TokenStorage {
     const baseStorage = new FileTokenStorage(filePath);
-    return new MultiServerTokenStorage(baseStorage, serverId);
+    return new MultiServerTokenStorage(baseStorage, serverId, mcpClientId);
   }
 
 

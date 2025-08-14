@@ -394,6 +394,7 @@ To fix this you have three different options:
       name,
       server: config,
       timeout: config.timeout ?? this.defaultTimeout,
+      mcpClientId: this.id,
     });
 
     mcpClient.__setLogger(this.logger);

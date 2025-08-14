@@ -134,6 +134,7 @@ export type InternalMastraMCPClientOptions = {
   capabilities?: ClientCapabilities;
   version?: string;
   timeout?: number;
+  mcpClientId?: string;
 };
 
 export class InternalMastraMCPClient extends MastraBase {
@@ -146,6 +147,7 @@ export class InternalMastraMCPClient extends MastraBase {
   private transport?: Transport;
   private currentOperationContext: RuntimeContext | null = null;
   private oauthProvider?: MastraOAuthClientProvider;
+  private mcpClientId?: string;
   public readonly resources: ResourceClientActions;
   public readonly prompts: PromptClientActions;
   public readonly elicitation: ElicitationClientActions;
@@ -155,6 +157,7 @@ export class InternalMastraMCPClient extends MastraBase {
     server,
     capabilities = {},
     timeout = DEFAULT_REQUEST_TIMEOUT_MSEC,
+    mcpClientId,
   }: InternalMastraMCPClientOptions) {
     super({ name: 'MastraMCPClient' });
     this.name = name;
@@ -162,6 +165,7 @@ export class InternalMastraMCPClient extends MastraBase {
     this.logHandler = server.logger;
     this.enableServerLogs = server.enableServerLogs ?? true;
     this.serverConfig = server;
+    this.mcpClientId = mcpClientId;
 
     const clientCapabilities = { ...capabilities, elicitation: {} };
 
@@ -185,7 +189,7 @@ export class InternalMastraMCPClient extends MastraBase {
         throw new Error('Cannot use both OAuth and authProvider configurations. Choose one authentication method.');
       }
       
-      this.oauthProvider = new MastraOAuthClientProvider(server.oauth, name);
+      this.oauthProvider = new MastraOAuthClientProvider(server.oauth, name, this.mcpClientId || 'default');
     }
 
     this.resources = new ResourceClientActions({ client: this, logger: this.logger });
