@@ -207,53 +207,18 @@ var FileTokenStorage = class {
   constructor(filePath) {
     this.filePath = filePath;
   }
-  async getTokens() {
-    return await this.getItem("__tokens");
-  }
-  async setTokens(tokens) {
-    await this.setItem("__tokens", tokens);
-  }
-  async clearTokens() {
+  async readData() {
     try {
-      await promises.unlink(this.filePath);
-    } catch (error) {
-      if (error.code !== "ENOENT") {
-        throw new Error(`Failed to clear tokens: ${error}`);
-      }
-    }
-  }
-  async setItem(key, value) {
-    try {
-      const currentData = await this.readStorageFile();
-      const updatedData = {
-        ...currentData,
-        [key]: value
-      };
-      await this.writeStorageFile(updatedData);
+      const data = await promises.readFile(this.filePath, "utf8");
+      return JSON.parse(data);
     } catch (error) {
       if (error.code === "ENOENT") {
-        await this.writeStorageFile({ [key]: value });
-      } else {
-        throw new Error(`Failed to set item ${key}: ${error}`);
+        return {};
       }
+      throw new Error(`Failed to read storage file: ${error}`);
     }
   }
-  async getItem(key) {
-    try {
-      const data = await this.readStorageFile();
-      return data[key] || null;
-    } catch (error) {
-      if (error.code === "ENOENT") {
-        return null;
-      }
-      throw new Error(`Failed to get item ${key}: ${error}`);
-    }
-  }
-  async readStorageFile() {
-    const data = await promises.readFile(this.filePath, "utf8");
-    return JSON.parse(data);
-  }
-  async writeStorageFile(data) {
+  async writeData(data) {
     try {
       await promises.mkdir(dirname(this.filePath), { recursive: true });
       const jsonData = JSON.stringify(data, null, 2);
@@ -262,68 +227,93 @@ var FileTokenStorage = class {
       throw new Error(`Failed to write storage file: ${error}`);
     }
   }
+  async clear() {
+    try {
+      await promises.unlink(this.filePath);
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        throw new Error(`Failed to clear storage file: ${error}`);
+      }
+    }
+  }
 };
-var MultiServerTokenStorage = class {
-  baseStorage;
+var MCPClientTokenStorage = class {
+  fileStorage;
   serverId;
-  constructor(baseStorage, serverId) {
-    this.baseStorage = baseStorage;
+  mcpClientId;
+  constructor(fileStorage, serverId, mcpClientId) {
+    this.fileStorage = fileStorage;
     this.serverId = serverId;
+    this.mcpClientId = mcpClientId;
   }
   async getTokens() {
-    const tokensJson = await this.baseStorage.getItem(`tokens__${this.serverId}`);
-    if (!tokensJson) {
-      return null;
-    }
-    try {
-      return JSON.parse(tokensJson);
-    } catch (error) {
-      throw new Error(`Failed to parse tokens for server ${this.serverId}: ${error}`);
-    }
+    const data = await this.fileStorage.readData();
+    return data[this.mcpClientId]?.tokens?.[this.serverId] || null;
   }
   async setTokens(tokens) {
-    const tokensJson = JSON.stringify(tokens);
-    await this.baseStorage.setItem(`tokens__${this.serverId}`, tokensJson);
+    const data = await this.fileStorage.readData();
+    (data[this.mcpClientId] ??= { tokens: {}, data: {} }).tokens[this.serverId] = tokens;
+    await this.fileStorage.writeData(data);
   }
   async clearTokens() {
-    await this.baseStorage.setItem(`tokens__${this.serverId}`, "");
+    const data = await this.fileStorage.readData();
+    const clientData = data[this.mcpClientId];
+    if (clientData?.tokens?.[this.serverId]) {
+      delete clientData.tokens[this.serverId];
+      await this.fileStorage.writeData(data);
+    }
   }
   async setItem(key, value) {
-    return this.baseStorage.setItem(`${this.serverId}__${key}`, value);
+    const data = await this.fileStorage.readData();
+    ((data[this.mcpClientId] ??= { tokens: {}, data: {} }).data[this.serverId] ??= {})[key] = value;
+    await this.fileStorage.writeData(data);
   }
   async getItem(key) {
-    return this.baseStorage.getItem(`${this.serverId}__${key}`);
+    const data = await this.fileStorage.readData();
+    return data[this.mcpClientId]?.data?.[this.serverId]?.[key] || null;
   }
 };
 var TokenStorageFactory = class {
   /**
-   * Create default token storage that shares tokens across all servers
+   * Create default hierarchical token storage for MCP clients
    */
-  static createDefault(filePath, serverId) {
-    const baseStorage = new FileTokenStorage(filePath);
-    return new MultiServerTokenStorage(baseStorage, serverId);
+  static createDefault(filePath, serverId, mcpClientId) {
+    const fileStorage = new FileTokenStorage(filePath);
+    return new MCPClientTokenStorage(fileStorage, serverId, mcpClientId);
   }
   /**
    * Create memory-only storage (for testing)
    */
   static createMemory() {
+    const clientId = "memory-client";
+    const serverId = "memory-server";
     return new class {
-      tokens = null;
-      data = {};
+      storageData = {};
       async getTokens() {
-        return this.tokens;
+        return this.storageData[clientId]?.tokens?.[serverId] || null;
       }
       async setTokens(tokens) {
-        this.tokens = tokens;
+        if (!this.storageData[clientId]) {
+          this.storageData[clientId] = { tokens: {}, data: {} };
+        }
+        this.storageData[clientId].tokens[serverId] = tokens;
       }
       async clearTokens() {
-        this.tokens = null;
+        if (this.storageData[clientId]?.tokens?.[serverId]) {
+          delete this.storageData[clientId].tokens[serverId];
+        }
       }
       async setItem(key, value) {
-        this.data[key] = value;
+        if (!this.storageData[clientId]) {
+          this.storageData[clientId] = { tokens: {}, data: {} };
+        }
+        if (!this.storageData[clientId].data[serverId]) {
+          this.storageData[clientId].data[serverId] = {};
+        }
+        this.storageData[clientId].data[serverId][key] = value;
       }
       async getItem(key) {
-        return this.data[key] || null;
+        return this.storageData[clientId]?.data?.[serverId]?.[key] || null;
       }
     }();
   }
@@ -615,12 +605,14 @@ var MastraOAuthClientProvider = class {
   config;
   storage;
   serverId;
+  mcpClientId;
   _codeVerifier = null;
   _state = null;
   callbackServer;
-  constructor(config, serverId) {
+  constructor(config, serverId, mcpClientId) {
     this.config = config;
     this.serverId = serverId;
+    this.mcpClientId = mcpClientId;
     this.validateConfig();
     this.storage = this.initializeTokenStorage();
   }
@@ -636,14 +628,14 @@ var MastraOAuthClientProvider = class {
     if (this.config.tokenStorageOptions) {
       const options = this.config.tokenStorageOptions;
       if (options.filePath) {
-        return TokenStorageFactory.createDefault(options.filePath, this.serverId);
+        return TokenStorageFactory.createDefault(options.filePath, this.serverId, this.mcpClientId);
       }
     }
     const os = __require("os");
     const path = __require("path");
     const tokensDir = path.join(os.homedir(), ".mastra", "tokens");
     const tokenFile = path.join(tokensDir, "tokens.json");
-    return TokenStorageFactory.createDefault(tokenFile, this.serverId);
+    return TokenStorageFactory.createDefault(tokenFile, this.serverId, this.mcpClientId);
   }
   get redirectUrl() {
     return this.config.redirectUri || "http://localhost:3000/oauth/callback";
@@ -782,6 +774,7 @@ var InternalMastraMCPClient = class extends MastraBase {
   transport;
   currentOperationContext = null;
   oauthProvider;
+  mcpClientId;
   resources;
   prompts;
   elicitation;
@@ -790,7 +783,8 @@ var InternalMastraMCPClient = class extends MastraBase {
     version = "1.0.0",
     server,
     capabilities = {},
-    timeout = DEFAULT_REQUEST_TIMEOUT_MSEC
+    timeout = DEFAULT_REQUEST_TIMEOUT_MSEC,
+    mcpClientId
   }) {
     super({ name: "MastraMCPClient" });
     this.name = name;
@@ -798,6 +792,7 @@ var InternalMastraMCPClient = class extends MastraBase {
     this.logHandler = server.logger;
     this.enableServerLogs = server.enableServerLogs ?? true;
     this.serverConfig = server;
+    this.mcpClientId = mcpClientId;
     const clientCapabilities = { ...capabilities, elicitation: {} };
     this.client = new Client(
       {
@@ -813,7 +808,7 @@ var InternalMastraMCPClient = class extends MastraBase {
       if ("authProvider" in server && server.authProvider) {
         throw new Error("Cannot use both OAuth and authProvider configurations. Choose one authentication method.");
       }
-      this.oauthProvider = new MastraOAuthClientProvider(server.oauth, name);
+      this.oauthProvider = new MastraOAuthClientProvider(server.oauth, name, this.mcpClientId || "default");
     }
     this.resources = new ResourceClientActions({ client: this, logger: this.logger });
     this.prompts = new PromptClientActions({ client: this, logger: this.logger });
@@ -1573,7 +1568,8 @@ To fix this you have three different options:
     const mcpClient = new InternalMastraMCPClient({
       name,
       server: config,
-      timeout: config.timeout ?? this.defaultTimeout
+      timeout: config.timeout ?? this.defaultTimeout,
+      mcpClientId: this.id
     });
     mcpClient.__setLogger(this.logger);
     this.mcpClientsById.set(name, mcpClient);
@@ -3181,6 +3177,6 @@ Provided arguments: ${JSON.stringify(args, null, 2)}`,
   }
 };
 
-export { AuthorizationError, FileTokenStorage, InvalidTokenError, MCPClient, MCPConfiguration, MCPServer, MastraMCPClient, MastraOAuthClientProvider, MultiServerTokenStorage, OAuthCallbackServer, OAuthError, RefreshFailedError, TokenExpiredError, TokenStorageFactory };
+export { AuthorizationError, InvalidTokenError, MCPClient, MCPClientTokenStorage, MCPConfiguration, MCPServer, MastraMCPClient, MastraOAuthClientProvider, OAuthCallbackServer, OAuthError, RefreshFailedError, TokenExpiredError, TokenStorageFactory };
 //# sourceMappingURL=index.js.map
 //# sourceMappingURL=index.js.map

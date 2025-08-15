@@ -1,7 +1,7 @@
-import { Bundler } from './chunk-5UFVPK76.js';
+import { Bundler } from './chunk-IA6E2T4X.js';
+import { recursiveRemoveNonReferencedNodes } from './chunk-3OH2F6RQ.js';
 import { DepsService, FileService } from './chunk-37Q52RJU.js';
 export { Deps, FileService, createChildProcessLogger, createPinoStream } from './chunk-37Q52RJU.js';
-import { recursiveRemoveNonReferencedNodes } from './chunk-3OH2F6RQ.js';
 import * as babel from '@babel/core';
 import babel__default from '@babel/core';
 import { rollup } from 'rollup';

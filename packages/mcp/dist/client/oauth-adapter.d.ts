@@ -9,10 +9,11 @@ export declare class MastraOAuthClientProvider implements OAuthClientProvider {
     private config;
     private storage;
     private serverId;
+    private mcpClientId;
     private _codeVerifier;
     private _state;
     private callbackServer?;
-    constructor(config: MCPOAuthConfig, serverId: string);
+    constructor(config: MCPOAuthConfig, serverId: string, mcpClientId: string);
     private validateConfig;
     private initializeTokenStorage;
     get redirectUrl(): string | URL;

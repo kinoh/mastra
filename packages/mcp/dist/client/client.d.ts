@@ -56,6 +56,7 @@ export type InternalMastraMCPClientOptions = {
     capabilities?: ClientCapabilities;
     version?: string;
     timeout?: number;
+    mcpClientId?: string;
 };
 export declare class InternalMastraMCPClient extends MastraBase {
     name: string;
@@ -67,10 +68,11 @@ export declare class InternalMastraMCPClient extends MastraBase {
     private transport?;
     private currentOperationContext;
     private oauthProvider?;
+    private mcpClientId?;
     readonly resources: ResourceClientActions;
     readonly prompts: PromptClientActions;
     readonly elicitation: ElicitationClientActions;
-    constructor({ name, version, server, capabilities, timeout, }: InternalMastraMCPClientOptions);
+    constructor({ name, version, server, capabilities, timeout, mcpClientId, }: InternalMastraMCPClientOptions);
     /**
      * Log a message at the specified level
      * @param level Log level

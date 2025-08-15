@@ -4,5 +4,5 @@ export * from './configuration.js';
 export * from './oauth-types.js';
 export { MastraOAuthClientProvider } from './oauth-adapter.js';
 export { OAuthCallbackServer, type CallbackServerConfig } from './oauth-callback-server.js';
-export { FileTokenStorage, MultiServerTokenStorage, TokenStorageFactory } from './token-storage.js';
+export { MCPClientTokenStorage, TokenStorageFactory } from './token-storage.js';
 //# sourceMappingURL=index.d.ts.map
