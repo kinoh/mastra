@@ -1,9 +1,9 @@
+import { randomBytes } from 'crypto';
 import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
 import type { OAuthClientMetadata, OAuthClientInformation, OAuthClientInformationFull, OAuthTokens as MCPOAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
-import { randomBytes, createHash } from 'crypto';
-import type { MCPOAuthConfig, TokenStorage, OAuthTokens } from './oauth-types';
+import type { OAuthCallbackServer } from './oauth-callback-server';
+import type { MCPOAuthConfig, TokenStorage } from './oauth-types';
 import { TokenStorageFactory } from './token-storage';
-import { OAuthCallbackServer } from './oauth-callback-server';
 
 /**
  * Adapter that bridges Mastra's OAuth configuration with MCP SDK's OAuthClientProvider interface

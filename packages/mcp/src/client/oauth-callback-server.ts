@@ -1,5 +1,7 @@
-import { createServer, IncomingMessage, ServerResponse } from 'http';
-import { URL, URLSearchParams } from 'url';
+import type { IncomingMessage, ServerResponse } from 'http';
+import { createServer } from 'http';
+import type { URLSearchParams } from 'url';
+import { URL } from 'url';
 import { AuthorizationError } from './oauth-types';
 
 /**
