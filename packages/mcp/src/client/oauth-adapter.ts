@@ -60,7 +60,18 @@ export class MastraOAuthClientProvider implements OAuthClientProvider {
   }
 
   get redirectUrl(): string | URL {
-    return this.config.redirectUri || 'http://localhost:3000/oauth/callback';
+    // Use explicit redirectUri if provided
+    if (this.config.redirectUri) {
+      return this.config.redirectUri;
+    }
+    
+    // Use publicUrl from callbackServerConfig if provided
+    if (this.config.callbackServerConfig?.publicUrl) {
+      return this.config.callbackServerConfig.publicUrl;
+    }
+    
+    // Default fallback
+    return 'http://localhost:3000/oauth/callback';
   }
 
   get clientMetadata(): OAuthClientMetadata {

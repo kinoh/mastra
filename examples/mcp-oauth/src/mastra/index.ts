@@ -27,6 +27,12 @@ export const mcp = new MCPClient({
         tokenStorageOptions: {
           filePath: './token-storage.json',
         },
+        // Example: Use callbackServerConfig for proxy environments
+        // callbackServerConfig: {
+        //   host: 'localhost',
+        //   port: 3001,
+        //   publicUrl: 'https://proxy.company.com/oauth/callback'
+        // },
       },
     },
   },

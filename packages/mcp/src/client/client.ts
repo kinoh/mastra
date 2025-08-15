@@ -264,11 +264,14 @@ export class InternalMastraMCPClient extends MastraBase {
   /**
    * Start a callback server to listen for OAuth redirects
    */
-  private async waitForOAuthCallback(redirect_url: URL): Promise<CallbackResult> {
-    const callbackServer = new OAuthCallbackServer({
+  private async waitForOAuthCallback(redirect_url: URL, oauthConfig?: MCPOAuthConfig): Promise<CallbackResult> {
+    // Use callbackServerConfig if provided, otherwise fall back to URL-based configuration
+    const serverConfig = oauthConfig?.callbackServerConfig || {
       host: redirect_url.hostname,
       port: parseInt(redirect_url.port),
-    });
+    };
+    
+    const callbackServer = new OAuthCallbackServer(serverConfig);
     const { url, promise } = await callbackServer.start();
     console.log(`OAuth callback URL: ${url}`);
     return await promise;
@@ -318,7 +321,7 @@ export class InternalMastraMCPClient extends MastraBase {
             throw new AuthorizationError('state_generation_failed', 'Unable to generate state parameter for OAuth flow');
           }
           
-          const result = await this.waitForOAuthCallback(redirect_url);
+          const result = await this.waitForOAuthCallback(redirect_url, (this.serverConfig as HttpServerDefinition).oauth);
           
           // Verify state parameter to prevent CSRF attacks
           if (result.state !== expectedState) {
