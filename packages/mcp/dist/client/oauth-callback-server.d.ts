@@ -1,11 +1,4 @@
-export interface CallbackServerConfig {
-    /** Port to listen on (0 for random available port) */
-    port?: number;
-    /** Host to bind to (default: localhost) */
-    host?: string;
-    /** Timeout in milliseconds to wait for callback (default: 300000ms = 5 minutes) */
-    timeout?: number;
-}
+import type { CallbackServerConfig } from './oauth-types.js';
 export interface CallbackResult {
     /** Authorization code from OAuth provider */
     code: string;

@@ -2,6 +2,17 @@
  * OAuth 2.1 authentication types for MCP client
  * Compatible with @modelcontextprotocol/sdk OAuthClientProvider interface
  */
+import type { OAuthTokens as MCPOAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
+export interface CallbackServerConfig {
+    /** Port to listen on (0 for random available port) */
+    port?: number;
+    /** Host to bind to (default: localhost) */
+    host?: string;
+    /** Timeout in milliseconds to wait for callback (default: 300000ms = 5 minutes) */
+    timeout?: number;
+    /** Public URL for OAuth callback (used in proxy environments) */
+    publicUrl?: string;
+}
 export interface MCPOAuthConfig {
     /** OAuth client identifier (use dynamic client registration if not provided) */
     clientId?: string;
@@ -13,15 +24,11 @@ export interface MCPOAuthConfig {
     onAuthURL: (authUrl: string, state: string) => Promise<void>;
     /** Optional callback when tokens are received */
     onTokenReceived?: (tokens: OAuthTokens) => Promise<void>;
-    /** Optional custom token storage implementation */
-    tokenStorage?: TokenStorage;
-    /** Token storage configuration options */
-    tokenStorageOptions?: {
-        /** Custom file path for token storage */
-        filePath?: string;
-    };
+    /** Token storage: file path (string) or custom implementation (TokenStorage) */
+    tokenStorage?: string | TokenStorage;
+    /** Callback server configuration for OAuth flow */
+    callbackServerConfig?: CallbackServerConfig;
 }
-import type { OAuthTokens as MCPOAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
 export interface OAuthTokens extends MCPOAuthTokens {
     /** Token issuance timestamp for expiration calculation */
     issued_at?: number;

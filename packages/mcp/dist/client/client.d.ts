@@ -6,9 +6,9 @@ import type { ClientCapabilities, ElicitRequest, ElicitResult, GetPromptResult, 
 import { ResourceUpdatedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { ElicitationClientActions } from './elicitationActions.js';
+import type { MCPOAuthConfig } from './oauth-types.js';
 import { PromptClientActions } from './promptActions.js';
 import { ResourceClientActions } from './resourceActions.js';
-import type { MCPOAuthConfig } from './oauth-types.js';
 export type { LoggingLevel } from '@modelcontextprotocol/sdk/types.js';
 export interface LogMessage {
     level: LoggingLevel;

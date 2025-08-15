@@ -5,6 +5,7 @@ var base = require('@mastra/core/base');
 var error = require('@mastra/core/error');
 var tools = require('@mastra/core/tools');
 var utils = require('@mastra/core/utils');
+var auth_js = require('@modelcontextprotocol/sdk/client/auth.js');
 var index_js$1 = require('@modelcontextprotocol/sdk/client/index.js');
 var sse_js$1 = require('@modelcontextprotocol/sdk/client/sse.js');
 var stdio_js$1 = require('@modelcontextprotocol/sdk/client/stdio.js');
@@ -19,7 +20,6 @@ var fs = require('fs');
 var path = require('path');
 var http = require('http');
 var url = require('url');
-var auth_js = require('@modelcontextprotocol/sdk/client/auth.js');
 var equal = require('fast-deep-equal');
 var uuid = require('uuid');
 var core = require('@mastra/core');
@@ -56,157 +56,6 @@ var ElicitationClientActions = class {
    */
   onRequest(handler) {
     this.client.setElicitationRequestHandler(handler);
-  }
-};
-var PromptClientActions = class {
-  client;
-  logger;
-  constructor({ client, logger }) {
-    this.client = client;
-    this.logger = logger;
-  }
-  /**
-   * Get all prompts from the connected MCP server.
-   * @returns A list of prompts with their versions.
-   */
-  async list() {
-    try {
-      const response = await this.client.listPrompts();
-      if (response && response.prompts && Array.isArray(response.prompts)) {
-        return response.prompts.map((prompt) => ({ ...prompt, version: prompt.version || "" }));
-      } else {
-        this.logger.warn(`Prompts response from server ${this.client.name} did not have expected structure.`, {
-          response
-        });
-        return [];
-      }
-    } catch (e) {
-      if (e.code === types_js.ErrorCode.MethodNotFound) {
-        return [];
-      }
-      this.logger.error(`Error getting prompts from server ${this.client.name}`, {
-        error: e instanceof Error ? e.message : String(e)
-      });
-      throw new Error(
-        `Failed to fetch prompts from server ${this.client.name}: ${e instanceof Error ? e.stack || e.message : String(e)}`
-      );
-    }
-  }
-  /**
-   * Get a specific prompt.
-   * @param name The name of the prompt to get.
-   * @param args Optional arguments for the prompt.
-   * @param version Optional version of the prompt to get.
-   * @returns The prompt content.
-   */
-  async get({ name, args, version }) {
-    return this.client.getPrompt({ name, args, version });
-  }
-  /**
-   * Set a notification handler for when the list of available prompts changes.
-   * @param handler The callback function to handle the notification.
-   */
-  async onListChanged(handler) {
-    this.client.setPromptListChangedNotificationHandler(handler);
-  }
-};
-var ResourceClientActions = class {
-  client;
-  logger;
-  constructor({ client, logger }) {
-    this.client = client;
-    this.logger = logger;
-  }
-  /**
-   * Get all resources from the connected MCP server.
-   * @returns A list of resources.
-   */
-  async list() {
-    try {
-      const response = await this.client.listResources();
-      if (response && response.resources && Array.isArray(response.resources)) {
-        return response.resources;
-      } else {
-        this.logger.warn(`Resources response from server ${this.client.name} did not have expected structure.`, {
-          response
-        });
-        return [];
-      }
-    } catch (e) {
-      if (e.code === types_js.ErrorCode.MethodNotFound) {
-        return [];
-      }
-      this.logger.error(`Error getting resources from server ${this.client.name}`, {
-        error: e instanceof Error ? e.message : String(e)
-      });
-      throw new Error(
-        `Failed to fetch resources from server ${this.client.name}: ${e instanceof Error ? e.stack || e.message : String(e)}`
-      );
-    }
-  }
-  /**
-   * Get all resource templates from the connected MCP server.
-   * @returns A list of resource templates.
-   */
-  async templates() {
-    try {
-      const response = await this.client.listResourceTemplates();
-      if (response && response.resourceTemplates && Array.isArray(response.resourceTemplates)) {
-        return response.resourceTemplates;
-      } else {
-        this.logger.warn(
-          `Resource templates response from server ${this.client.name} did not have expected structure.`,
-          { response }
-        );
-        return [];
-      }
-    } catch (e) {
-      if (e.code === types_js.ErrorCode.MethodNotFound) {
-        return [];
-      }
-      this.logger.error(`Error getting resource templates from server ${this.client.name}`, {
-        error: e instanceof Error ? e.message : String(e)
-      });
-      throw new Error(
-        `Failed to fetch resource templates from server ${this.client.name}: ${e instanceof Error ? e.stack || e.message : String(e)}`
-      );
-    }
-  }
-  /**
-   * Read a specific resource.
-   * @param uri The URI of the resource to read.
-   * @returns The resource content.
-   */
-  async read(uri) {
-    return this.client.readResource(uri);
-  }
-  /**
-   * Subscribe to a specific resource.
-   * @param uri The URI of the resource to subscribe to.
-   */
-  async subscribe(uri) {
-    return this.client.subscribeResource(uri);
-  }
-  /**
-   * Unsubscribe from a specific resource.
-   * @param uri The URI of the resource to unsubscribe from.
-   */
-  async unsubscribe(uri) {
-    return this.client.unsubscribeResource(uri);
-  }
-  /**
-   * Set a notification handler for when a specific resource is updated.
-   * @param handler The callback function to handle the notification.
-   */
-  async onUpdated(handler) {
-    this.client.setResourceUpdatedNotificationHandler(handler);
-  }
-  /**
-   * Set a notification handler for when the list of available resources changes.
-   * @param handler The callback function to handle the notification.
-   */
-  async onListChanged(handler) {
-    this.client.setResourceListChangedNotificationHandler(handler);
   }
 };
 var FileTokenStorage = class {
@@ -323,6 +172,156 @@ var TokenStorageFactory = class {
         return this.storageData[clientId]?.data?.[serverId]?.[key] || null;
       }
     }();
+  }
+};
+
+// src/client/oauth-adapter.ts
+var MastraOAuthClientProvider = class {
+  config;
+  storage;
+  serverId;
+  mcpClientId;
+  _codeVerifier = null;
+  _state = null;
+  callbackServer;
+  constructor(config, serverId, mcpClientId) {
+    this.config = config;
+    this.serverId = serverId;
+    this.mcpClientId = mcpClientId;
+    this.validateConfig();
+    this.storage = this.initializeTokenStorage();
+  }
+  validateConfig() {
+    if (!this.config.onAuthURL) {
+      throw new Error("OAuth configuration requires onAuthURL callback");
+    }
+  }
+  initializeTokenStorage() {
+    if (this.config.tokenStorage) {
+      if (typeof this.config.tokenStorage === "string") {
+        return TokenStorageFactory.createDefault(this.config.tokenStorage, this.serverId, this.mcpClientId);
+      }
+      return this.config.tokenStorage;
+    }
+    const os = __require("os");
+    const path = __require("path");
+    const tokensDir = path.join(os.homedir(), ".mastra", "tokens");
+    const tokenFile = path.join(tokensDir, "tokens.json");
+    return TokenStorageFactory.createDefault(tokenFile, this.serverId, this.mcpClientId);
+  }
+  get redirectUrl() {
+    if (this.config.redirectUri) {
+      return this.config.redirectUri;
+    }
+    if (this.config.callbackServerConfig?.publicUrl) {
+      return this.config.callbackServerConfig.publicUrl;
+    }
+    return "http://localhost:3000/oauth/callback";
+  }
+  get clientMetadata() {
+    return {
+      redirect_uris: [this.redirectUrl.toString()],
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "client_secret_post",
+      scope: this.config.scopes?.join(" ") || "mcp:tools"
+    };
+  }
+  state() {
+    if (!this._state) {
+      this._state = crypto$1.randomBytes(16).toString("base64url");
+    }
+    return this._state;
+  }
+  async clientInformation() {
+    console.log(`[DEBUG] clientInformation() called`);
+    const savedClientInfo = await this.getSavedClientInformation();
+    if (savedClientInfo) {
+      console.log(`[DEBUG] Found saved client information: ${savedClientInfo.client_id}`);
+      return savedClientInfo;
+    }
+    if (this.config.clientId) {
+      console.log(`[DEBUG] Using static client ID: ${this.config.clientId}`);
+      return {
+        client_id: this.config.clientId
+        // No client_secret for PKCE flow
+      };
+    }
+    console.log(`[DEBUG] No client information found - will use Dynamic Client Registration`);
+    return void 0;
+  }
+  async saveClientInformation(clientInformation) {
+    console.log(`[DEBUG] saveClientInformation() called with client_id: ${clientInformation.client_id}`);
+    await this.storage.setItem("client_information", JSON.stringify(clientInformation));
+    console.log(`[DEBUG] Saved client information to storage`);
+  }
+  /**
+   * Retrieve saved client information from Dynamic Client Registration
+   */
+  async getSavedClientInformation() {
+    try {
+      const saved = await this.storage.getItem("client_information");
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (error) {
+      console.log(`[DEBUG] Error retrieving saved client information: ${error}`);
+    }
+    return void 0;
+  }
+  async tokens() {
+    console.log(`[DEBUG] tokens() called - checking for existing tokens`);
+    const tokens = await this.storage.getTokens();
+    if (!tokens) {
+      console.log(`[DEBUG] No existing tokens found`);
+      return void 0;
+    }
+    console.log(`[DEBUG] Found existing tokens - access_token: ${tokens.access_token?.substring(0, 10)}...`);
+    const { issued_at, ...mcpTokens } = tokens;
+    return mcpTokens;
+  }
+  async saveTokens(tokens) {
+    console.log(`[DEBUG] saveTokens() called - access_token: ${tokens.access_token?.substring(0, 10)}...`);
+    const extendedTokens = {
+      ...tokens,
+      issued_at: Math.floor(Date.now() / 1e3)
+    };
+    await this.storage.setTokens(extendedTokens);
+    console.log(`[DEBUG] Tokens saved to storage`);
+    if (this.config.onTokenReceived) {
+      await this.config.onTokenReceived(tokens);
+      console.log(`[DEBUG] User onTokenReceived callback executed`);
+    }
+  }
+  async redirectToAuthorization(authorizationUrl) {
+    console.log(`[DEBUG] redirectToAuthorization() called with URL: ${authorizationUrl.toString()}`);
+    const state = typeof this.state === "function" ? await this.state() : this.state || "";
+    await this.config.onAuthURL(authorizationUrl.toString(), state);
+    console.log(`[DEBUG] User onAuthURL callback executed`);
+  }
+  async saveCodeVerifier(codeVerifier) {
+    this._codeVerifier = codeVerifier;
+  }
+  async codeVerifier() {
+    if (!this._codeVerifier) {
+      this._codeVerifier = crypto$1.randomBytes(32).toString("base64url");
+    }
+    return this._codeVerifier;
+  }
+  async invalidateCredentials(scope) {
+    switch (scope) {
+      case "all":
+        await this.storage.clearTokens();
+        this._codeVerifier = null;
+        this._state = null;
+        break;
+      case "tokens":
+        await this.storage.clearTokens();
+        break;
+      case "verifier":
+        this._codeVerifier = null;
+        break;
+    }
   }
 };
 
@@ -551,7 +550,7 @@ var OAuthCallbackServer = class {
           reject(new Error("Failed to get server address"));
           return;
         }
-        const callbackUrl = `http://${this.config.host}:${address.port}/oauth/callback`;
+        const callbackUrl = this.config.publicUrl || `http://${this.config.host}:${address.port}/oauth/callback`;
         setTimeout(() => {
           resolve({
             url: callbackUrl,
@@ -599,6 +598,9 @@ var OAuthCallbackServer = class {
     if (!this.server) {
       return null;
     }
+    if (this.config.publicUrl) {
+      return this.config.publicUrl;
+    }
     const address = this.server.address();
     if (!address || typeof address === "string") {
       return null;
@@ -606,153 +608,159 @@ var OAuthCallbackServer = class {
     return `http://${this.config.host}:${address.port}/oauth/callback`;
   }
 };
-
-// src/client/oauth-adapter.ts
-var MastraOAuthClientProvider = class {
-  config;
-  storage;
-  serverId;
-  mcpClientId;
-  _codeVerifier = null;
-  _state = null;
-  callbackServer;
-  constructor(config, serverId, mcpClientId) {
-    this.config = config;
-    this.serverId = serverId;
-    this.mcpClientId = mcpClientId;
-    this.validateConfig();
-    this.storage = this.initializeTokenStorage();
-  }
-  validateConfig() {
-    if (!this.config.onAuthURL) {
-      throw new Error("OAuth configuration requires onAuthURL callback");
-    }
-  }
-  initializeTokenStorage() {
-    if (this.config.tokenStorage) {
-      return this.config.tokenStorage;
-    }
-    if (this.config.tokenStorageOptions) {
-      const options = this.config.tokenStorageOptions;
-      if (options.filePath) {
-        return TokenStorageFactory.createDefault(options.filePath, this.serverId, this.mcpClientId);
-      }
-    }
-    const os = __require("os");
-    const path = __require("path");
-    const tokensDir = path.join(os.homedir(), ".mastra", "tokens");
-    const tokenFile = path.join(tokensDir, "tokens.json");
-    return TokenStorageFactory.createDefault(tokenFile, this.serverId, this.mcpClientId);
-  }
-  get redirectUrl() {
-    return this.config.redirectUri || "http://localhost:3000/oauth/callback";
-  }
-  get clientMetadata() {
-    return {
-      redirect_uris: [this.redirectUrl.toString()],
-      grant_types: ["authorization_code", "refresh_token"],
-      response_types: ["code"],
-      token_endpoint_auth_method: "client_secret_post",
-      scope: this.config.scopes?.join(" ") || "mcp:tools"
-    };
-  }
-  state() {
-    if (!this._state) {
-      this._state = crypto$1.randomBytes(16).toString("base64url");
-    }
-    return this._state;
-  }
-  async clientInformation() {
-    console.log(`[DEBUG] clientInformation() called`);
-    const savedClientInfo = await this.getSavedClientInformation();
-    if (savedClientInfo) {
-      console.log(`[DEBUG] Found saved client information: ${savedClientInfo.client_id}`);
-      return savedClientInfo;
-    }
-    if (this.config.clientId) {
-      console.log(`[DEBUG] Using static client ID: ${this.config.clientId}`);
-      return {
-        client_id: this.config.clientId
-        // No client_secret for PKCE flow
-      };
-    }
-    console.log(`[DEBUG] No client information found - will use Dynamic Client Registration`);
-    return void 0;
-  }
-  async saveClientInformation(clientInformation) {
-    console.log(`[DEBUG] saveClientInformation() called with client_id: ${clientInformation.client_id}`);
-    await this.storage.setItem("client_information", JSON.stringify(clientInformation));
-    console.log(`[DEBUG] Saved client information to storage`);
+var PromptClientActions = class {
+  client;
+  logger;
+  constructor({ client, logger }) {
+    this.client = client;
+    this.logger = logger;
   }
   /**
-   * Retrieve saved client information from Dynamic Client Registration
+   * Get all prompts from the connected MCP server.
+   * @returns A list of prompts with their versions.
    */
-  async getSavedClientInformation() {
+  async list() {
     try {
-      const saved = await this.storage.getItem("client_information");
-      if (saved) {
-        return JSON.parse(saved);
+      const response = await this.client.listPrompts();
+      if (response && response.prompts && Array.isArray(response.prompts)) {
+        return response.prompts.map((prompt) => ({ ...prompt, version: prompt.version || "" }));
+      } else {
+        this.logger.warn(`Prompts response from server ${this.client.name} did not have expected structure.`, {
+          response
+        });
+        return [];
       }
-    } catch (error) {
-      console.log(`[DEBUG] Error retrieving saved client information: ${error}`);
-    }
-    return void 0;
-  }
-  async tokens() {
-    console.log(`[DEBUG] tokens() called - checking for existing tokens`);
-    const tokens = await this.storage.getTokens();
-    if (!tokens) {
-      console.log(`[DEBUG] No existing tokens found`);
-      return void 0;
-    }
-    console.log(`[DEBUG] Found existing tokens - access_token: ${tokens.access_token?.substring(0, 10)}...`);
-    const { issued_at, ...mcpTokens } = tokens;
-    return mcpTokens;
-  }
-  async saveTokens(tokens) {
-    console.log(`[DEBUG] saveTokens() called - access_token: ${tokens.access_token?.substring(0, 10)}...`);
-    const extendedTokens = {
-      ...tokens,
-      issued_at: Math.floor(Date.now() / 1e3)
-    };
-    await this.storage.setTokens(extendedTokens);
-    console.log(`[DEBUG] Tokens saved to storage`);
-    if (this.config.onTokenReceived) {
-      await this.config.onTokenReceived(tokens);
-      console.log(`[DEBUG] User onTokenReceived callback executed`);
+    } catch (e) {
+      if (e.code === types_js.ErrorCode.MethodNotFound) {
+        return [];
+      }
+      this.logger.error(`Error getting prompts from server ${this.client.name}`, {
+        error: e instanceof Error ? e.message : String(e)
+      });
+      throw new Error(
+        `Failed to fetch prompts from server ${this.client.name}: ${e instanceof Error ? e.stack || e.message : String(e)}`
+      );
     }
   }
-  async redirectToAuthorization(authorizationUrl) {
-    console.log(`[DEBUG] redirectToAuthorization() called with URL: ${authorizationUrl.toString()}`);
-    const state = typeof this.state === "function" ? await this.state() : this.state || "";
-    await this.config.onAuthURL(authorizationUrl.toString(), state);
-    console.log(`[DEBUG] User onAuthURL callback executed`);
+  /**
+   * Get a specific prompt.
+   * @param name The name of the prompt to get.
+   * @param args Optional arguments for the prompt.
+   * @param version Optional version of the prompt to get.
+   * @returns The prompt content.
+   */
+  async get({ name, args, version }) {
+    return this.client.getPrompt({ name, args, version });
   }
-  async saveCodeVerifier(codeVerifier) {
-    this._codeVerifier = codeVerifier;
-  }
-  async codeVerifier() {
-    if (!this._codeVerifier) {
-      this._codeVerifier = crypto$1.randomBytes(32).toString("base64url");
-    }
-    return this._codeVerifier;
-  }
-  async invalidateCredentials(scope) {
-    switch (scope) {
-      case "all":
-        await this.storage.clearTokens();
-        this._codeVerifier = null;
-        this._state = null;
-        break;
-      case "tokens":
-        await this.storage.clearTokens();
-        break;
-      case "verifier":
-        this._codeVerifier = null;
-        break;
-    }
+  /**
+   * Set a notification handler for when the list of available prompts changes.
+   * @param handler The callback function to handle the notification.
+   */
+  async onListChanged(handler) {
+    this.client.setPromptListChangedNotificationHandler(handler);
   }
 };
+var ResourceClientActions = class {
+  client;
+  logger;
+  constructor({ client, logger }) {
+    this.client = client;
+    this.logger = logger;
+  }
+  /**
+   * Get all resources from the connected MCP server.
+   * @returns A list of resources.
+   */
+  async list() {
+    try {
+      const response = await this.client.listResources();
+      if (response && response.resources && Array.isArray(response.resources)) {
+        return response.resources;
+      } else {
+        this.logger.warn(`Resources response from server ${this.client.name} did not have expected structure.`, {
+          response
+        });
+        return [];
+      }
+    } catch (e) {
+      if (e.code === types_js.ErrorCode.MethodNotFound) {
+        return [];
+      }
+      this.logger.error(`Error getting resources from server ${this.client.name}`, {
+        error: e instanceof Error ? e.message : String(e)
+      });
+      throw new Error(
+        `Failed to fetch resources from server ${this.client.name}: ${e instanceof Error ? e.stack || e.message : String(e)}`
+      );
+    }
+  }
+  /**
+   * Get all resource templates from the connected MCP server.
+   * @returns A list of resource templates.
+   */
+  async templates() {
+    try {
+      const response = await this.client.listResourceTemplates();
+      if (response && response.resourceTemplates && Array.isArray(response.resourceTemplates)) {
+        return response.resourceTemplates;
+      } else {
+        this.logger.warn(
+          `Resource templates response from server ${this.client.name} did not have expected structure.`,
+          { response }
+        );
+        return [];
+      }
+    } catch (e) {
+      if (e.code === types_js.ErrorCode.MethodNotFound) {
+        return [];
+      }
+      this.logger.error(`Error getting resource templates from server ${this.client.name}`, {
+        error: e instanceof Error ? e.message : String(e)
+      });
+      throw new Error(
+        `Failed to fetch resource templates from server ${this.client.name}: ${e instanceof Error ? e.stack || e.message : String(e)}`
+      );
+    }
+  }
+  /**
+   * Read a specific resource.
+   * @param uri The URI of the resource to read.
+   * @returns The resource content.
+   */
+  async read(uri) {
+    return this.client.readResource(uri);
+  }
+  /**
+   * Subscribe to a specific resource.
+   * @param uri The URI of the resource to subscribe to.
+   */
+  async subscribe(uri) {
+    return this.client.subscribeResource(uri);
+  }
+  /**
+   * Unsubscribe from a specific resource.
+   * @param uri The URI of the resource to unsubscribe from.
+   */
+  async unsubscribe(uri) {
+    return this.client.unsubscribeResource(uri);
+  }
+  /**
+   * Set a notification handler for when a specific resource is updated.
+   * @param handler The callback function to handle the notification.
+   */
+  async onUpdated(handler) {
+    this.client.setResourceUpdatedNotificationHandler(handler);
+  }
+  /**
+   * Set a notification handler for when the list of available resources changes.
+   * @param handler The callback function to handle the notification.
+   */
+  async onListChanged(handler) {
+    this.client.setResourceListChangedNotificationHandler(handler);
+  }
+};
+
+// src/client/client.ts
 function convertLogLevelToLoggerMethod(level) {
   switch (level) {
     case "debug":
@@ -876,21 +884,18 @@ var InternalMastraMCPClient = class extends base.MastraBase {
   /**
    * Start a callback server to listen for OAuth redirects
    */
-  async waitForOAuthCallback(redirect_url) {
-    return new Promise(async (resolve) => {
-      const callbackServer = new OAuthCallbackServer({
-        host: redirect_url.hostname,
-        port: parseInt(redirect_url.port)
-      });
-      const { url, promise } = await callbackServer.start();
-      console.log(`OAuth callback URL: ${url}`);
-      promise.then((result) => {
-        resolve(result.code);
-      });
-    });
+  async waitForOAuthCallback(redirect_url, oauthConfig) {
+    const serverConfig = oauthConfig?.callbackServerConfig || {
+      host: redirect_url.hostname,
+      port: parseInt(redirect_url.port)
+    };
+    const callbackServer = new OAuthCallbackServer(serverConfig);
+    const { url, promise } = await callbackServer.start();
+    console.log(`OAuth callback URL: ${url}`);
+    return await promise;
   }
   async connectHttp(url) {
-    const { requestInit, eventSourceInit} = this.serverConfig;
+    const { requestInit, eventSourceInit } = this.serverConfig;
     this.log("debug", `Attempting to connect to URL: ${url}`);
     let shouldTrySSE = url.pathname.endsWith(`/sse`);
     if (!shouldTrySSE) {
@@ -915,9 +920,21 @@ var InternalMastraMCPClient = class extends base.MastraBase {
           if (typeof redirect_url === "string") {
             redirect_url = new URL(redirect_url);
           }
-          const code = await this.waitForOAuthCallback(redirect_url);
-          await streamableTransport.finishAuth(code);
-          console.log(`Finished OAuth authentication with code: ${code}`);
+          const expectedState = typeof this.oauthProvider.state === "function" ? await this.oauthProvider.state() : this.oauthProvider.state;
+          if (!expectedState) {
+            this.log("error", "OAuth state generation failed - cannot proceed with secure authentication");
+            throw new AuthorizationError("state_generation_failed", "Unable to generate state parameter for OAuth flow");
+          }
+          const result = await this.waitForOAuthCallback(redirect_url, this.serverConfig.oauth);
+          if (result.state !== expectedState) {
+            this.log("error", "OAuth state verification failed", {
+              expected: expectedState,
+              received: result.state
+            });
+            throw new AuthorizationError("invalid_state", "State parameter mismatch - possible CSRF attack");
+          }
+          await streamableTransport.finishAuth(result.code);
+          console.log(`Finished OAuth authentication with code: ${result.code}`);
           const newStreamableTransport = new streamableHttp_js$1.StreamableHTTPClientTransport(url, {
             requestInit,
             reconnectionOptions: this.serverConfig.reconnectionOptions,
