@@ -271,15 +271,15 @@ export class InternalMastraMCPClient extends MastraBase {
       });
       const { url, promise } = await callbackServer.start();
       console.log(`OAuth callback URL: ${url}`);
-      promise.then(result => {
-        // TODO: Verify state
-        resolve(result.code);
-      });
+      const result = await promise;
+
+      // TODO: Verify state
+      resolve(result.code);
     });
   }
 
   private async connectHttp(url: URL) {
-    const { requestInit, eventSourceInit, authProvider } = this.serverConfig;
+    const { requestInit, eventSourceInit } = this.serverConfig;
 
     this.log('debug', `Attempting to connect to URL: ${url}`);
 
