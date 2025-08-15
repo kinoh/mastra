@@ -47,15 +47,14 @@ describe('OAuth Integration Tests', () => {
       })).toThrow('Cannot use both OAuth and authProvider configurations');
     });
 
-    it('should work with tokenStorageOptions', () => {
+    it('should work with tokenStorage as string', () => {
       const serverConfig: MastraMCPServerDefinition = {
         url: new URL('https://api.example.com/mcp'),
         oauth: {
           clientId: 'test-client',
           scopes: ['read', 'write'],
           onAuthURL: async () => {},
-          tokenStorageOptions: {
-          },
+          tokenStorage: './test-tokens.json',
         },
       };
 
@@ -156,7 +155,7 @@ describe('OAuth Integration Tests', () => {
                 clientId: 'test-client',
                       scopes: ['read'],
                 onAuthURL: async () => {},
-                tokenStorageOptions: options,
+                tokenStorage: options?.filePath || './default-tokens.json',
               },
             },
           });

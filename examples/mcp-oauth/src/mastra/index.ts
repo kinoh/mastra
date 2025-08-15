@@ -24,9 +24,7 @@ export const mcp = new MCPClient({
           console.log(chalk.green('✅ Authentication successful!'));
           console.log(chalk.gray(`Access token expires in: ${tokens.expires_in} seconds`));
         },
-        tokenStorageOptions: {
-          filePath: './token-storage.json',
-        },
+        tokenStorage: './token-storage.json',
         // Example: Use callbackServerConfig for proxy environments
         // callbackServerConfig: {
         //   host: 'localhost',

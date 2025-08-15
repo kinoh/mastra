@@ -28,13 +28,8 @@ export interface MCPOAuthConfig {
   onAuthURL: (authUrl: string, state: string) => Promise<void>;
   /** Optional callback when tokens are received */
   onTokenReceived?: (tokens: OAuthTokens) => Promise<void>;
-  /** Optional custom token storage implementation */
-  tokenStorage?: TokenStorage;
-  /** Token storage configuration options */
-  tokenStorageOptions?: {
-    /** Custom file path for token storage */
-    filePath?: string;
-  };
+  /** Token storage: file path (string) or custom implementation (TokenStorage) */
+  tokenStorage?: string | TokenStorage;
   /** Callback server configuration for OAuth flow */
   callbackServerConfig?: CallbackServerConfig;
 }
