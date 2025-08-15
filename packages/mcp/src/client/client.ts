@@ -4,6 +4,7 @@ import type { RuntimeContext } from '@mastra/core/di';
 import { ErrorCategory, ErrorDomain, MastraError } from '@mastra/core/error';
 import { createTool } from '@mastra/core/tools';
 import { isZodType } from '@mastra/core/utils';
+import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import type { SSEClientTransportOptions } from '@modelcontextprotocol/sdk/client/sse.js';
@@ -38,13 +39,13 @@ import { z } from 'zod';
 import { convertJsonSchemaToZod } from 'zod-from-json-schema';
 import type { JSONSchema } from 'zod-from-json-schema';
 import { ElicitationClientActions } from './elicitationActions';
+import { MastraOAuthClientProvider } from './oauth-adapter';
+import { OAuthCallbackServer  } from './oauth-callback-server';
+import type {CallbackResult} from './oauth-callback-server';
+import type { MCPOAuthConfig } from './oauth-types';
+import { AuthorizationError } from './oauth-types';
 import { PromptClientActions } from './promptActions';
 import { ResourceClientActions } from './resourceActions';
-import type { MCPOAuthConfig } from './oauth-types';
-import { MastraOAuthClientProvider } from './oauth-adapter';
-import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
-import { OAuthCallbackServer } from './oauth-callback-server';
-import { parse } from 'path';
 
 // Re-export MCP SDK LoggingLevel for convenience
 export type { LoggingLevel } from '@modelcontextprotocol/sdk/types.js';
@@ -263,23 +264,21 @@ export class InternalMastraMCPClient extends MastraBase {
   /**
    * Start a callback server to listen for OAuth redirects
    */
-  private async waitForOAuthCallback(redirect_url: URL): Promise<string> {
-    return new Promise<string>(async (resolve) => {
-      const callbackServer = new OAuthCallbackServer({
-        host: redirect_url.hostname,
-        port: parseInt(redirect_url.port),
-      });
-      const { url, promise } = await callbackServer.start();
-      console.log(`OAuth callback URL: ${url}`);
-      promise.then(result => {
-        // TODO: Verify state
-        resolve(result.code);
-      });
-    });
+  private async waitForOAuthCallback(redirect_url: URL, oauthConfig?: MCPOAuthConfig): Promise<CallbackResult> {
+    // Use callbackServerConfig if provided, otherwise fall back to URL-based configuration
+    const serverConfig = oauthConfig?.callbackServerConfig || {
+      host: redirect_url.hostname,
+      port: parseInt(redirect_url.port),
+    };
+    
+    const callbackServer = new OAuthCallbackServer(serverConfig);
+    const { url, promise } = await callbackServer.start();
+    console.log(`OAuth callback URL: ${url}`);
+    return await promise;
   }
 
   private async connectHttp(url: URL) {
-    const { requestInit, eventSourceInit, authProvider } = this.serverConfig;
+    const { requestInit, eventSourceInit } = this.serverConfig;
 
     this.log('debug', `Attempting to connect to URL: ${url}`);
 
@@ -310,9 +309,31 @@ export class InternalMastraMCPClient extends MastraBase {
           if (typeof redirect_url === 'string') {
             redirect_url = new URL(redirect_url);
           }
-          const code = await this.waitForOAuthCallback(redirect_url);
-          await streamableTransport.finishAuth(code);
-          console.log(`Finished OAuth authentication with code: ${code}`);
+          
+          // Get expected state from OAuth provider
+          const expectedState = typeof this.oauthProvider!.state === 'function' 
+            ? await this.oauthProvider!.state() 
+            : this.oauthProvider!.state;
+          
+          // State generation is mandatory for secure OAuth flow
+          if (!expectedState) {
+            this.log('error', 'OAuth state generation failed - cannot proceed with secure authentication');
+            throw new AuthorizationError('state_generation_failed', 'Unable to generate state parameter for OAuth flow');
+          }
+          
+          const result = await this.waitForOAuthCallback(redirect_url, (this.serverConfig as HttpServerDefinition).oauth);
+          
+          // Verify state parameter to prevent CSRF attacks
+          if (result.state !== expectedState) {
+            this.log('error', 'OAuth state verification failed', {
+              expected: expectedState,
+              received: result.state,
+            });
+            throw new AuthorizationError('invalid_state', 'State parameter mismatch - possible CSRF attack');
+          }
+          
+          await streamableTransport.finishAuth(result.code);
+          console.log(`Finished OAuth authentication with code: ${result.code}`);
           
           // After finishAuth(), create a new transport instance and retry connection
           // The previous transport is already started and cannot be reused

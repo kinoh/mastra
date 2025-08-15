@@ -1,6 +1,9 @@
-import { createServer, IncomingMessage, ServerResponse } from 'http';
-import { URL, URLSearchParams } from 'url';
+import type { IncomingMessage, ServerResponse } from 'http';
+import { createServer } from 'http';
+import type { URLSearchParams } from 'url';
+import { URL } from 'url';
 import { AuthorizationError } from './oauth-types';
+import type { CallbackServerConfig } from './oauth-types';
 
 /**
  * Handles OAuth callback processing with dedicated promise management
@@ -197,15 +200,6 @@ class CallbackHandler {
   }
 }
 
-export interface CallbackServerConfig {
-  /** Port to listen on (0 for random available port) */
-  port?: number;
-  /** Host to bind to (default: localhost) */
-  host?: string;
-  /** Timeout in milliseconds to wait for callback (default: 300000ms = 5 minutes) */
-  timeout?: number;
-}
-
 export interface CallbackResult {
   /** Authorization code from OAuth provider */
   code: string;
@@ -262,7 +256,8 @@ export class OAuthCallbackServer {
           return;
         }
 
-        const callbackUrl = `http://${this.config.host}:${address.port}/oauth/callback`;
+        // Use publicUrl if provided, otherwise construct from host:port
+        const callbackUrl = this.config.publicUrl || `http://${this.config.host}:${address.port}/oauth/callback`;
 
         // Ensure server is actually listening
         setTimeout(() => {
@@ -316,6 +311,11 @@ export class OAuthCallbackServer {
   getCallbackUrl(): string | null {
     if (!this.server) {
       return null;
+    }
+
+    // Use publicUrl if provided
+    if (this.config.publicUrl) {
+      return this.config.publicUrl;
     }
 
     const address = this.server.address();

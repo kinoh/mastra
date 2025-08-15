@@ -1,13 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import type { OAuthTokens } from './oauth-types';
 import { 
   FileTokenStorage, 
   MCPClientTokenStorage, 
   TokenStorageFactory 
 } from './token-storage';
-import type { OAuthTokens, TokenStorage } from './oauth-types';
 
 describe('FileTokenStorage', () => {
   let tempDir: string;

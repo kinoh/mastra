@@ -3,7 +3,7 @@ export { MastraMCPClient } from './client';
 export * from './configuration';
 export * from './oauth-types';
 export { MastraOAuthClientProvider } from './oauth-adapter';
-export { OAuthCallbackServer, type CallbackServerConfig } from './oauth-callback-server';
+export { OAuthCallbackServer } from './oauth-callback-server';
 export { 
   MCPClientTokenStorage, 
   TokenStorageFactory 

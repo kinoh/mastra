@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { InternalMastraMCPClient } from './client';
 import type { MastraMCPServerDefinition } from './client';
-import { TokenStorageFactory } from './token-storage';
 import { MastraOAuthClientProvider } from './oauth-adapter';
+import { TokenStorageFactory } from './token-storage';
 
 describe('OAuth Integration Tests', () => {
 
@@ -13,7 +13,7 @@ describe('OAuth Integration Tests', () => {
         oauth: {
           clientId: 'test-client',
           scopes: ['read', 'write'],
-          onAuthURL: async (url, state) => {
+          onAuthURL: async (url, _state) => {
             console.log(`Please visit: ${url}`);
           },
         },
@@ -33,7 +33,7 @@ describe('OAuth Integration Tests', () => {
         url: new URL('https://api.example.com/mcp'),
         authProvider: new MastraOAuthClientProvider({
           onAuthURL: async () => {},
-        }, ''),
+        }, '', ''),
         oauth: {
           clientId: 'test-client',
           scopes: ['read'],
@@ -47,15 +47,14 @@ describe('OAuth Integration Tests', () => {
       })).toThrow('Cannot use both OAuth and authProvider configurations');
     });
 
-    it('should work with tokenStorageOptions', () => {
+    it('should work with tokenStorage as string', () => {
       const serverConfig: MastraMCPServerDefinition = {
         url: new URL('https://api.example.com/mcp'),
         oauth: {
           clientId: 'test-client',
           scopes: ['read', 'write'],
           onAuthURL: async () => {},
-          tokenStorageOptions: {
-          },
+          tokenStorage: './test-tokens.json',
         },
       };
 
@@ -156,7 +155,7 @@ describe('OAuth Integration Tests', () => {
                 clientId: 'test-client',
                       scopes: ['read'],
                 onAuthURL: async () => {},
-                tokenStorageOptions: options,
+                tokenStorage: options?.filePath || './default-tokens.json',
               },
             },
           });

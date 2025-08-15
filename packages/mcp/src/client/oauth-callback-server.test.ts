@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { CallbackResult, OAuthCallbackServer, type CallbackServerConfig } from './oauth-callback-server';
+import { OAuthCallbackServer } from './oauth-callback-server';
+import type { CallbackResult } from './oauth-callback-server';
 import { AuthorizationError, OAuthError } from './oauth-types';
 
 describe('OAuthCallbackServer', () => {

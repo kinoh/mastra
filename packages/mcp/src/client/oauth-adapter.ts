@@ -1,9 +1,9 @@
+import { randomBytes } from 'crypto';
 import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
 import type { OAuthClientMetadata, OAuthClientInformation, OAuthClientInformationFull, OAuthTokens as MCPOAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
-import { randomBytes, createHash } from 'crypto';
-import type { MCPOAuthConfig, TokenStorage, OAuthTokens } from './oauth-types';
+import type { OAuthCallbackServer } from './oauth-callback-server';
+import type { MCPOAuthConfig, TokenStorage } from './oauth-types';
 import { TokenStorageFactory } from './token-storage';
-import { OAuthCallbackServer } from './oauth-callback-server';
 
 /**
  * Adapter that bridges Mastra's OAuth configuration with MCP SDK's OAuthClientProvider interface
@@ -38,16 +38,12 @@ export class MastraOAuthClientProvider implements OAuthClientProvider {
   private initializeTokenStorage(): TokenStorage {
     // Use custom storage if provided
     if (this.config.tokenStorage) {
-      return this.config.tokenStorage;
-    }
-
-    // Use token storage options if provided
-    if (this.config.tokenStorageOptions) {
-      const options = this.config.tokenStorageOptions;
-      
-      if (options.filePath) {
-        return TokenStorageFactory.createDefault(options.filePath, this.serverId, this.mcpClientId);
+      // If it's a string, treat it as a file path
+      if (typeof this.config.tokenStorage === 'string') {
+        return TokenStorageFactory.createDefault(this.config.tokenStorage, this.serverId, this.mcpClientId);
       }
+      // Otherwise, it's a custom TokenStorage implementation
+      return this.config.tokenStorage;
     }
 
     // Default to file storage with default path
@@ -60,7 +56,18 @@ export class MastraOAuthClientProvider implements OAuthClientProvider {
   }
 
   get redirectUrl(): string | URL {
-    return this.config.redirectUri || 'http://localhost:3000/oauth/callback';
+    // Use explicit redirectUri if provided
+    if (this.config.redirectUri) {
+      return this.config.redirectUri;
+    }
+    
+    // Use publicUrl from callbackServerConfig if provided
+    if (this.config.callbackServerConfig?.publicUrl) {
+      return this.config.callbackServerConfig.publicUrl;
+    }
+    
+    // Default fallback
+    return 'http://localhost:3000/oauth/callback';
   }
 
   get clientMetadata(): OAuthClientMetadata {
